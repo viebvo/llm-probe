@@ -1,0 +1,9 @@
+.venv/
+data/
+__pycache__/
+.claude/settings.local.json
+build/
+dist/
+*.egg-info/
+temp/
+*.zip

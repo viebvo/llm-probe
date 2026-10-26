@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "llm-probe"
+dynamic = ["version"]
+description = "Benchmark, check and compare LLM endpoints (Ollama, vLLM, Open WebUI, OpenAI-compatible)"
+readme = "README.md"
+license = { file = "LICENSE" }
+authors = [{ name = "Bernhard Vogl" }]
+requires-python = ">=3.10"
+# keep in sync with requirements.txt (used by run.sh / run.bat)
+dependencies = ["rich>=13", "httpx>=0.27", "asyncssh>=2.14", "aiohttp>=3.9"]
+
+[project.scripts]
+llm-probe = "llm_probe.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["llm_probe*"]  # with the data folders static/ and assets/images/
+
+[tool.setuptools.dynamic]
+version = { attr = "llm_probe.__version__" }
+
+[tool.setuptools.package-data]
+"*" = ["*.html", "*.jpg", "*.md"]
+
+[project.urls]
+Homepage = "https://github.com/viebvo/llm-probe"
+Issues = "https://github.com/viebvo/llm-probe/issues"

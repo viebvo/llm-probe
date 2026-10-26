@@ -1,0 +1,11 @@
+cff-version: 1.2.0
+message: "If you use LLM Probe in your work, please cite it as below."
+title: "LLM Probe"
+abstract: "Speed, accuracy and capabilities of LLM endpoints (Ollama, vLLM, Open WebUI, OpenAI-compatible): automatically checked tasks, GPU monitoring, stored results and side-by-side comparisons."
+type: software
+authors:
+  - family-names: "Vogl"
+    given-names: "Bernhard"
+repository-code: "https://github.com/viebvo/llm-probe"
+license: MIT
+date-released: "2026-10-26"

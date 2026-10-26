@@ -1,0 +1,4 @@
+rich>=13
+httpx>=0.27
+asyncssh>=2.14
+aiohttp>=3.9
