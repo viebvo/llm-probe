@@ -205,20 +205,19 @@ A test started in the web UI keeps running on the server when you close the brow
 
 You do not tag a prompt. A custom prompt with an expected answer is a quality prompt by itself. A third group, **reliability**, holds the prompts behind the two reliability gauges.
 
-**Choose the prompts with four facets**
+**Choose the prompts in the table**
 
-Above the prompt list are four facets. Each value has a check box and shows how many prompts have it.
+The prompts are one table, one row each. The columns are *Prompt*, *Group*, *Lang*, *Level* and *Category*. Tick the rows you want. Your own prompts are in it too (category *custom*).
 
-* *Language*: English, German, Polish (and "no language" once a custom prompt has none).
-* *Difficulty*: *easy* is the standard suite. *hard* are the sharper tests that tell models apart.
+Above the table are four filters and a search box. They only change which rows you see. **Your ticks stay** when you change a filter.
+
 * *Group*: performance, quality, reliability (the prompts behind the two reliability gauges, see "What the tests are meant to show").
-* *Type*: text, vision (images and OCR), tools, safety (refusal tests), deviation (long sessions).
+* *Language*: English, German, Polish (and "no language" once a custom prompt has none).
+* *Level*: *easy* is the standard suite. *hard* are the sharper tests that tell models apart.
+* *Category*: for example short, reasoning, vision, or *custom*.
+* *Search*: part of a name or ID.
 
-A prompt is ticked when its language, difficulty, group and type are all ticked. Two examples: German + easy + quality + all types gives every checked easy prompt in German. English + hard gives the harder tests.
-
-The rows work from top to bottom. A row can be used only after the row above has a value ticked. A value that would add no prompt is greyed out. For example, with English + easy + performance the context sweep and every quality-only type are greyed out.
-
-*all*, *none* and *default* set the facets. Afterwards you can still tick or untick single prompts. Two presets under *Prompts* select **all speed tests (EN)** or **all quality tests (EN)**. In the group choice, the reliability tests count as part of quality.
+The header check box ticks, inverts or unticks the rows you see. *all*, *none* and *default* tick by rule and show every row again. Two presets under *Prompts* select **all speed tests (EN)** or **all quality tests (EN)**.
 
 **What a new test starts with**
 

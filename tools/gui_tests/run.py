@@ -312,6 +312,36 @@ def check_test_tab(s: Suite) -> None:
     pg.click("#t-quality"); pg.wait_for_timeout(200)
     b = pg.evaluate("promptBoxes().filter(i => i.checked).length")
     s.ok("the speed / quality presets select different prompts", a > 0 and b > 0 and a != b, [a, b])
+    # prompt table: one row per prompt with Group / Lang / Level / Category; filters only narrow the view
+    t = pg.evaluate("""(() => { const p = JSON.parse(JSON.stringify(state.prompts[0])); p.id = 'my_custom'; p.name = 'My custom prompt'; p.category = 'custom';
+        p.lang = ''; p.difficulty = 'easy'; p.group = 'quality'; p.builtin = false; state.prompts.push(p); renderPromptChecklist();
+        const row = [...document.querySelectorAll('#t-prompts tbody tr')].find(r => r.textContent.includes('My custom prompt'));
+        return [promptBoxes().length === state.prompts.length, [...row.children].slice(2).map(c => c.textContent)]; })()""")
+    s.ok("the table has a row per prompt, a custom one shows its category", t[0] and t[1] == ["quality", "-", "easy", "custom"], t)
+    pg.click("#t-none"); pg.wait_for_timeout(200)
+    pg.evaluate("(() => { const b = promptBoxes().find(i => i.value === 'my_custom'); b.checked = true; b.dispatchEvent(new Event('change', { bubbles: true })); })()")
+    pg.evaluate("document.querySelector('#t-facets input[data-pf=category][value=custom]').click()")  # untick custom: the row disappears
+    h = pg.evaluate("(() => [shownBoxes().length, promptBoxes().length, promptBoxes().find(i => i.value === 'my_custom').checked])()")
+    s.ok("a filter hides rows but keeps their ticks", h[0] == h[1] - 1 and h[2] is True, h)
+    pg.evaluate("document.querySelectorAll('#t-facets input[data-pf=category]').forEach(b => { b.checked = b.value === 'custom'; }); applyFilters()")  # only custom
+    h = pg.evaluate("(() => [shownBoxes().length, $('tp-head').checked])()")
+    s.ok("filter 'custom' shows only the custom prompt, header box ticked", h == [1, True], h)
+    pg.fill("#t-psearch", "no such prompt xyz"); pg.wait_for_timeout(200)
+    s.ok("the search narrows the rows", pg.evaluate("shownBoxes().length") == 0)
+    txt = pg.inner_text("#t-selcount")
+    s.ok("one line says what is shown and what is selected", txt.startswith("0 of ") and " shown, " in txt and " selected" in txt, txt)
+    pg.evaluate("document.querySelector('#t-facets a[data-pfset=all][data-f=category]').click()")
+    pg.evaluate("document.querySelector('#t-facets a[data-pfset=none][data-f=group]').click()")
+    s.ok("a dropdown has all / none; none hides every row", pg.evaluate("shownBoxes().length") == 0 and "Group: none" in pg.inner_text("#t-facets [data-pfd=group] summary"))
+    s.ok("the filters sit in a frame titled 'Prompt filter'", "Prompt filter" in pg.inner_text("fieldset:has(#t-facets) legend"))
+    pg.click("#t-all"); pg.wait_for_timeout(300)
+    s.ok("'all' resets filters and search", pg.evaluate("shownBoxes().length === promptBoxes().length && $('t-psearch').value === ''"))
+    pg.evaluate("promptBoxes().find(i => i.value === 'my_custom').checked = true")
+    dirs = []
+    for _ in range(3):
+        pg.click("#t-prompts th[data-psort=name]"); pg.wait_for_timeout(150)
+        dirs.append(pg.evaluate("(() => { const n = [...document.querySelectorAll('#t-prompts tbody tr:not(.caps) td.pn')].map(t => t.textContent); return [document.querySelector('#t-prompts th[data-psort=name]').dataset.dir || '', n[0] <= n[n.length - 1]]; })()"))
+    s.ok("column sort rotates ascending, descending, original; ticks stay", dirs[0] == ["asc", True] and dirs[1] == ["desc", False] and dirs[2][0] == "" and pg.evaluate("promptBoxes().find(i => i.value === 'my_custom').checked"), dirs)
     s.ok("no page errors", not pg.errors, pg.errors[:2])
     pg.close()
 

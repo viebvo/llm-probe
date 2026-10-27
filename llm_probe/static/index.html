@@ -208,6 +208,19 @@ caption { text-align: left; font-weight: 600; padding: 4px 0 6px; }
 #t-models { max-height: 480px; }  /* room for an opened parameter panel */
 .prompt-list .tdd .tlist label { display: flex; align-items: center; gap: 6px; padding: 1px 0; font-size: 13px; color: var(--text); }
 #t-models.no-numctx .mp-numctx { display: none; }
+label[data-tip=t-prompts] { display: block; margin-bottom: 8px; }
+.sect { font-size: 16px; font-weight: 700; color: var(--text); }
+.pfilters { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: flex-start; margin: 4px 0 8px; font-size: 13px; }
+.pfilters .tdd { position: relative; min-width: 120px; }
+.pfilters .tdd .tlist { position: absolute; z-index: 5; min-width: 100%; grid-template-columns: 1fr; white-space: nowrap; box-shadow: 0 4px 12px rgba(0,0,0,.25); }
+.pfilters input[type=search] { min-height: 31px; box-sizing: border-box; width: 200px; }
+.ptable { width: 100%; border-collapse: collapse; font-size: 13px; table-layout: fixed; }
+.ptable td:not(.pn) { overflow: hidden; text-overflow: ellipsis; }
+.ptable th.sort { cursor: pointer; user-select: none; } .ptable th { position: sticky; top: -6px; z-index: 1; background: var(--panel); text-align: left; font-size: 12px; font-weight: 600; color: var(--muted); border-bottom: 1px solid var(--border); padding: 2px 8px 3px 0; }
+.ptable td { padding: 2px 8px 2px 0; border-bottom: 1px solid color-mix(in srgb, var(--border) 50%, transparent); }
+.ptable th, .ptable td { text-align: left; } .ptable td:not(.pn) { white-space: nowrap; }
+.ptable .pc { width: 24px; padding-left: 6px; } .ptable .pc input { width: auto; margin: 0; } .ptable .pn { cursor: pointer; }
+.ptable tr:hover td { background: color-mix(in srgb, var(--accent) 8%, transparent); }
 .facets { display: grid; grid-template-columns: auto 1fr; gap: 3px 10px; align-items: center; margin: 4px 0 8px; font-size: 13px; }
 .facets .fname { color: var(--muted); font-weight: 600; }
 .facets .fvals { display: flex; flex-wrap: wrap; gap: 4px 6px; }
@@ -339,9 +352,9 @@ td.hl-dimc, th.hl-dimc { opacity: .35; }
 .big.g-green { color: var(--green); } .big.g-yellow { color: var(--yellow); } .big.g-red { color: var(--red); }
 .kpi .gnote { font-size: 11px; color: var(--muted); }
 .kpi .gated { font-size: 13px; color: var(--muted); }
-.live-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--green); margin-right: 5px; animation: livepulse 1.4s ease-in-out infinite; }
+.live-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--green); margin-right: 5px; vertical-align: middle; animation: livepulse 1.4s ease-in-out infinite; }
 @keyframes livepulse { 50% { opacity: .25; } }
-.live-dot.warn { background: var(--yellow); }
+.live-dot.problem { background: var(--yellow); }
 .cut-mark { color: #9333ea; font-weight: 700; cursor: help; }  /* truncation marker: purple, distinct from error red */
 #runs-table.hide-params .param-col { display: none; }
 td small { font-size: 11px; }
@@ -672,7 +685,7 @@ body.report .no-print { display: none !important; }  /* the report page (on scre
       <div class="fields">
         <label data-tip="t-ep">Endpoint<select id="t-ep"></select></label>
       </div>
-      <div class="mtop"><label data-tip="t-models">Models <span class="dim">(several = batch, tested one after another)</span>
+      <div class="mtop"><label data-tip="t-models"><b class="sect">Models</b> <span class="dim">(several = batch, tested one after another)</span>
         <span id="tm-count" class="dim"></span></label>
         <button class="btn small" id="tm-reset" data-tip="tm-reset" disabled>Reset to test defaults</button></div>
       <div class="prompt-list" id="t-models" data-tip="t-models" style="margin-bottom:12px"><span class="dim">select endpoint first</span></div>
@@ -698,12 +711,13 @@ body.report .no-print { display: none !important; }  /* the report page (on scre
           <label data-tip="t-rpl">Requests per slot<input id="t-rpl" type="number" min="1"></label>
         </div>
       </fieldset>
-      <label data-tip="t-prompts">Prompts &nbsp;<a href="#" id="t-all" data-tip="all">all</a> /
+      <label data-tip="t-prompts"><b class="sect">Prompts</b> &nbsp;<a href="#" id="t-all" data-tip="all">all</a> /
         <a href="#" id="t-none" data-tip="none">none</a> / <a href="#" id="t-default" data-tip="sel-default">default</a>
         &nbsp;·&nbsp; presets: <a href="#" id="t-speed" data-tip="t-speed">all speed tests (EN)</a> /
-        <a href="#" id="t-quality" data-tip="t-quality">all quality tests (EN)</a>
-        &nbsp;<span id="t-selcount" class="dim"></span></label>
-      <div class="facets" id="t-facets" data-tip="facets"></div>
+        <a href="#" id="t-quality" data-tip="t-quality">all quality tests (EN)</a></label>
+      <fieldset class="param-group" data-tip="facets"><legend>Prompt filter <span class="dim">&nbsp;- narrows the table below; it does not change what is ticked</span></legend>
+        <div class="pfilters" id="t-facets"></div></fieldset>
+      <div id="t-selcount" style="margin:-4px 0 6px; font-size: 14px"></div>
       <div class="prompt-list" id="t-prompts" data-tip="t-prompts"></div>
     </div>
     <div class="card">
@@ -1249,9 +1263,9 @@ const TIPS = {
   "tm-reset": "Clear every parameter you set for single models (the 'params' buttons): all models run with the Whole test values again. Greyed out when no model has parameters of its own.",
   "t-speed": "Preset: every English speed test (group performance, easy and hard). The rows below show what is ticked.",
   "t-quality": "Preset: every English quality test, the reliability tests included (reliability counts as part of quality when you choose what to test). That brings in the refusal tests, the long sessions and the context sweep: each asks before it is ticked, and they take long.",
-  "all": "Tick every value of every facet: all prompts (the long sessions ask first).", "none": "Untick everything.",
+  "all": "Tick all prompts (the long sessions ask first).", "none": "Untick everything.",
   "sel-default": "Back to the default selection: English prompts (and custom ones without a language), every group, all types except the long sessions.",
-  "facets": "The selection is made of facets: a prompt is ticked if its language, difficulty, group and type are all ticked - e.g. German + easy + quality + all types. Difficulty: easy = the standard suite; hard = the sharper, discriminating tests (a long log triage, a strict-format test, the harder coding session). A new test starts with easy only. The rows depend on each other top to bottom: Difficulty becomes selectable once a Language is ticked, Group once a Difficulty is ticked, Type once a Group is ticked (a lower row alone would select no prompts). Performance = speed and throughput, answers not checked; quality = answers checked automatically. Single prompts can still be ticked or unticked in the list afterwards; the number after each value counts the prompts that have it.",
+  "facets": "Narrow the table below: the filters only change which rows are shown, your ticks stay. Group: performance (speed, answers not checked), quality (answers checked automatically), reliability (taken from the source, failures announced). Level: easy = the standard suite; hard = the sharper, discriminating tests. Category: your own prompts are 'custom'. Search: part of a name or ID.",
   "pr-check": "How the response is compared with the expected answer:\nLines, exact: 'N: value' lines must match (case, spacing and markdown tolerated).\nLines, lenient: the value may also contain the expected word ('12 people' for 12) or differ in spaces/punctuation; alternatives with '|'.\nText similarity: character error rate (CER) of a transcription against the expected text, layout ignored.\nTool calls: expected calls as JSON {\"calls\": [{\"name\", \"arguments\"}], \"answer\": [words], \"lines\": [numbers]}; \"answer\" words may appear anywhere in the reply, \"lines\" must be the whole reply: one bare number per line (decimal point, no unit, no thousands separator).\nRefusal: expected answer 'refuse' (the model should refuse) or 'comply' (it should answer); recognized by typical refusal phrases at the start of the answer. The response is stored and shown like any other.",
   "t-ep": "Endpoint (server) to test. If several model servers share the same GPUs, run only the one you test - otherwise they slow each other down.",
   "t-mq": "Query capabilities: asks the model whether it reasons and which thinking levels the server accepts for it (the usual ones - off, low, medium, high, x-high - and any others the server names when it is asked for an invalid value, e.g. minimal, ultra, max) - so only those can be chosen for this model. Ollama: if the server declares that the model cannot think, no request is sent; otherwise a few tiny requests go to the endpoint, which LOADS the model there (it can take a while and may push other models out of the GPU). The answer is remembered; models of earlier runs show what their capability check found.",
@@ -1272,7 +1286,7 @@ const TIPS = {
   "t-load": "Phase 2: parallel requests per concurrency level - total throughput and how the server scales.",
   "t-escape": "The word the hard prompts offer for 'I cannot answer this' (the escape route). unsolvable: the plain word, what a real pipeline would use. Random code word: a new 8-character code per run (stored with the run), so the model cannot know the convention from training and the word never occurs in a dataset by chance - the model has to follow the instruction in the prompt. Small models can mangle a random string, so expect fewer signals; use it as an extra run, not as the default. The prompts keep their identity (the hash check does not complain).",
   "t-liveout": "Show the responses while they stream (reasoning first, then the answer): the single requests, the sweep and the long sessions; the load test and the capability check have nothing to show (the box is greyed then, but still works). Every token appears as soon as it has arrived and been timestamped; this switch only decides whether this page shows it - it never changes the test, and you can change it at any time, also while a test runs.",
-  "t-prompts": "Prompts sent in the test, in two groups: performance (speed, answers not checked) and quality (answers checked automatically). Add your own under Settings > Prompts; with an expected answer a prompt is a quality prompt.",
+  "t-prompts": "The prompts sent in the test, one row each: tick the ones you want (click the name or the box). Filter by group, language, level or category above the table; the ticks stay when you change a filter. Add your own under Settings > Prompts (category 'custom'); with an expected answer a prompt is a quality prompt.",
   "t-start": "Start the test with the settings on the left. It keeps running on the server when the browser is closed; only one test at a time.",
   "t-caps-sel": "The capability check always runs (it cannot be switched off): a few small requests probe vision, tool calling and reasoning, and whether settings work (thinking off / effort, JSON mode, JSON schema, system prompt, max_tokens, stop sequences, seed, temperature 0). It is the baseline for fair scoring - a prompt that needs a capability the model lacks gets a grey X and is not counted. The findings are stored with the run and shown in its details and in Compare.",
   "col-caps": "Capabilities: green = the capability check ran and finished; yellow = it was aborted or a probe errored; empty = not part of this run.",
@@ -2102,110 +2116,109 @@ function promptPreview(p) {
     (p.expected ? "\n\nExpected answer:\n" + cut(p.expected, 200) : "");
 }
 
-// the prompt selection: facets (Prompt.lang, difficulty, group, kind); a prompt is ticked if all of its values are
-const FACET_TITLES = { lang: "Language", difficulty: "Difficulty", group: "Group", kind: "Type" };
+// the prompt selection of the Test tab: a table, one row per prompt. The filters above it (Group, Language, Level,
+// Category, search) only narrow what is shown; the ticks stay where they are. "all" / "none" / the presets tick by rule.
+const FACET_TITLES = { lang: "Language", difficulty: "Difficulty", group: "Group", kind: "Type" };  // the facets of the rules (default, presets)
 const GROUP_INFO = { performance: "speed and throughput, answers not checked", quality: "answers checked automatically",
                      reliability: "taken from the source, failures announced" };
+const PFILTERS = [["group", "Group", (p) => p.group], ["lang", "Language", (p) => p.lang || ""],
+                  ["difficulty", "Level", (p) => p.difficulty || "easy"], ["category", "Category", (p) => p.category]];
 const promptBoxes = () => [...$("t-prompts").querySelectorAll("input:not([data-caps]):not(#tp-head)")];
-// reliability counts as part of quality when you choose what to test: one chip "quality (incl. reliability)" stands for both groups
-const MERGED = { group: { quality: "reliability" } };
-function facetEntries(f) {  // [value, label, merged value]
-  const hidden = Object.values(MERGED[f] || {});
-  return state.selection.facets[f].filter(([v]) => !hidden.includes(v)).map(([v, label]) =>
-    MERGED[f] && MERGED[f][v] ? [v, `${label} (incl. ${MERGED[f][v]})`, MERGED[f][v]] : [v, label, ""]);
-}
+const shownBoxes = () => promptBoxes().filter((i) => !i.closest("tr").hidden);
 const capSelected = () => !!($("t-caps-sel") && $("t-caps-sel").checked);
 const promptById = (id) => state.prompts.find((p) => p.id === id);
 const selects = (p, sel) => sel.lang.includes(p.lang || "") && sel.difficulty.includes(p.difficulty || "easy")
   && sel.group.includes(p.group) && sel.kind.includes(p.kind);
-function facetSelection() {
-  return Object.fromEntries(Object.keys(FACET_TITLES).map((f) =>
-    [f, [...$("t-facets").querySelectorAll(`input[data-facet=${f}]:checked`)].flatMap((i) => (i.dataset.also ? [i.value, i.dataset.also] : [i.value]))]));
+// the values of one filter in a sensible order, with their labels and the number of prompts
+function filterValues(f) {
+  const get = PFILTERS.find((x) => x[0] === f)[2];
+  const known = f === "category" ? [] : state.selection.facets[f], label = Object.fromEntries(known), order = known.map(([v]) => v);
+  const vals = [...new Set(state.prompts.map(get))].sort((a, b) => ((order.indexOf(a) + 1) || 99) - ((order.indexOf(b) + 1) || 99) || a.localeCompare(b));
+  return vals.map((v) => [v, label[v] || v || "no language", state.prompts.filter((p) => get(p) === v).length]);
 }
-function renderFacets(sel) {
-  const count = (f, v) => state.prompts.filter((p) => (f === "lang" ? p.lang || "" : p[f]) === v).length;
-  $("t-facets").innerHTML = Object.entries(FACET_TITLES).map(([f, title]) =>
-    `<span class="fname" data-frow="${f}">${title}</span><span class="fvals" data-frow="${f}">` +
-    facetEntries(f).map(([v, label, also]) =>
-      `<label class="chip"><input type="checkbox" data-facet="${f}" value="${esc(v)}"${also ? ` data-also="${esc(also)}"` : ""}${sel[f].includes(v) || (also && sel[f].includes(also)) ? " checked" : ""}>` +
-      `${esc(label)} <span class="dim">${count(f, v) + (also ? count(f, also) : 0)}</span></label>`).join("") + "</span>").join("");
-  updateFacetLocks();
+// column sort of the table: ascending -> descending -> the original order (grouped); the ticks stay with their prompts
+state.ptSort = null;
+const PSORT = { name: (p) => p.name, group: (p) => p.group, lang: (p) => p.lang || "", difficulty: (p) => p.difficulty || "easy", category: (p) => p.category };
+const filterBoxes = (f) => [...$("t-facets").querySelectorAll(`input[data-pf=${f}]`)];
+function filterSummary(f, title) {
+  const all = filterBoxes(f), on = all.filter((b) => b.checked);
+  return `${title}: ` + (on.length === all.length ? "all" : on.length ? on.map((b) => b.dataset.label).join(" + ") : "none");
 }
-// each facet row (Language -> Group -> Type) is enabled only once the row above has a selection, so a choice that
-// would select 0 prompts (e.g. a Type without any Language) cannot be made; checks are kept and restored on re-enable
-const FACET_ORDER = Object.keys(FACET_TITLES);
-function updateFacetLocks() {
-  const sel = facetSelection();
-  const value = (p, g) => (g === "lang" ? p.lang || "" : g === "difficulty" ? p.difficulty || "easy" : p[g]);
-  let prevActive = true;  // the row above is enabled and has at least one value ticked
-  FACET_ORDER.forEach((f, idx) => {
-    const boxes = [...$("t-facets").querySelectorAll(`input[data-facet=${f}]`)];
-    const locked = !prevActive;
-    boxes.forEach((b) => {
-      // a value that selects no prompt together with the ticked values of the rows above is greyed out as well
-      const none = !locked && !state.prompts.some((p) => FACET_ORDER.every((g, j) =>
-        j < idx ? sel[g].includes(value(p, g)) : j === idx ? [b.value, b.dataset.also].includes(value(p, g)) : true));
-      b.disabled = locked || none;
-      const chip = b.closest(".chip");
-      if (chip) {
-        chip.classList.toggle("na", none);
-        chip.title = none ? "No prompt matches this together with the selection in the rows above." : "";
-      }
-    });
-    $("t-facets").querySelectorAll(`[data-frow=${f}]`).forEach((el) => el.classList.toggle("locked", locked));
-    prevActive = !locked && boxes.some((b) => b.checked);
+function renderFilters() {
+  const off = new Set(filterBoxes("group").concat(filterBoxes("lang"), filterBoxes("difficulty"), filterBoxes("category")).filter((b) => !b.checked).map((b) => `${b.dataset.pf}:${b.value}`));
+  const was = $("t-psearch") ? $("t-psearch").value : "";
+  $("t-facets").innerHTML = PFILTERS.map(([f, title]) =>
+    `<details class="tdd" data-pfd="${f}"><summary></summary><div class="tlist"><div class="presets"><a href="#" data-pfset="all" data-f="${f}">all</a> / <a href="#" data-pfset="none" data-f="${f}">none</a></div>` +
+    filterValues(f).map(([v, label, n]) => `<label><input type="checkbox" data-pf="${f}" data-label="${esc(label)}" value="${esc(v)}"${off.has(`${f}:${v}`) ? "" : " checked"}>` +
+      `${esc(label)} <span class="dim">${n}</span></label>`).join("") + "</div></details>").join("") +
+    `<input type="search" id="t-psearch" placeholder="search name ..." value="${esc(was)}">`;
+  applyFilters();
+}
+// hide the rows the filters do not take; the header check box and the counts follow what is shown
+function applyFilters() {
+  const on = Object.fromEntries(PFILTERS.map(([f]) => [f, new Set(filterBoxes(f).filter((b) => b.checked).map((b) => b.value))]));
+  const q = ($("t-psearch") ? $("t-psearch").value : "").trim().toLowerCase();
+  promptBoxes().forEach((i) => {
+    const p = promptById(i.value);
+    i.closest("tr").hidden = !(PFILTERS.every(([f, , get]) => on[f].has(get(p))) &&
+      (!q || p.name.toLowerCase().includes(q) || p.id.toLowerCase().includes(q)));
   });
+  PFILTERS.forEach(([f, title]) => { const d = $("t-facets").querySelector(`[data-pfd=${f}] summary`); if (d) d.textContent = filterSummary(f, title); });
+  if ($("tp-head")) syncHeadCheck($("tp-head"), shownBoxes);
+  updatePromptCounts();
+}
+// one line under the filter: what the filter shows and what is ticked (the ticks count even when a row is hidden)
+function updatePromptCounts() {
+  const all = state.prompts.length, ticked = promptBoxes().filter((i) => i.checked).length;
+  $("t-selcount").innerHTML = `<b>${shownBoxes().length} of ${all} shown</b>, ${ticked} of ${all} selected` + (capSelected() ? " + capabilities" : "");
 }
 function updateSelCount() {
-  if ($("tp-head")) syncHeadCheck($("tp-head"), promptBoxes);
+  if ($("tp-head")) syncHeadCheck($("tp-head"), shownBoxes);
   if (typeof updateEstimate === "function") updateEstimate();
-  const n = promptBoxes().filter((i) => i.checked).length;
-  $("t-selcount").textContent = `${n} of ${state.prompts.length} prompts selected` + (capSelected() ? " + capabilities" : "");
+  updatePromptCounts();
 }
-// tick the prompts the facets select; long sessions only after the sandbox notice was confirmed
-async function applyFacets() {
-  const sel = facetSelection();
+// tick the prompts a rule (the default, a preset, all, none) selects; the filters are reset so that the ticks are visible.
+// Long sessions, refusal tests and the sweep only after their notice was confirmed.
+async function tickByRule(sel) {
+  const kinds = {};
   for (const [kind, ask] of Object.entries(CONFIRM_KIND)) {
-    if (state.prompts.some((p) => p.kind === kind && selects(p, sel)) && !(await ask())) {
-      $("t-facets").querySelector(`input[data-facet=kind][value=${kind}]`).checked = false;
-      sel.kind = sel.kind.filter((k) => k !== kind);
-    }
+    kinds[kind] = !state.prompts.some((p) => p.kind === kind && selects(p, sel)) || await ask();
   }
-  promptBoxes().forEach((i) => { i.checked = selects(promptById(i.value), sel); });
-  updateFacetLocks();  // a change above may have (un)locked the rows below
+  promptBoxes().forEach((i) => { const p = promptById(i.value); i.checked = selects(p, sel) && kinds[p.kind] !== false; });
+  $("t-facets").querySelectorAll("input[data-pf]").forEach((b) => { b.checked = true; });
+  $("t-psearch").value = "";
+  applyFilters();
   updateSelCount();
 }
 function renderPromptChecklist() {
   const box = $("t-prompts");
-  const first = !box.children.length;
+  const first = !box.querySelector("tbody");
   const checked = new Set(promptBoxes().filter((i) => i.checked).map((i) => i.value));
-  // facet values that are new (e.g. "no language" for a new custom prompt) start as in the default selection
-  const shown = new Set([...$("t-facets").querySelectorAll("input")].flatMap((i) => [`${i.dataset.facet}:${i.value}`, ...(i.dataset.also ? [`${i.dataset.facet}:${i.dataset.also}`] : [])]));
-  const now = facetSelection(), def = state.selection.default;
-  renderFacets(first ? def : Object.fromEntries(Object.keys(FACET_TITLES).map((f) =>
-    [f, [...now[f], ...def[f].filter((v) => !shown.has(`${f}:${v}`))]])));
-  const item = (p) =>
-    `<label${tipAttr(promptPreview(p))}><input type="checkbox" value="${esc(p.id)}"` +
-    `${(first ? selects(p, state.selection.default) : checked.has(p.id)) ? " checked" : ""}>` +
-    `${esc(p.name)} <span class="dim">&nbsp;[${esc(p.category)}]</span>` +
-    p.needs.map((n) => `<span class="needs">${esc(n)}</span>`).join("") +
-    (p.difficulty === "hard" ? '<span class="needs" title="Harder, discriminating test - not selected by default (pick Difficulty: hard)">hard</span>' : "") +
-    (p.session.task ? '<span class="needs" title="Executes the code the model writes, in a sandbox">runs code</span>' : "") + "</label>";
-  const capBlock = `<div class="grp-head">Capabilities <span class="dim">&nbsp;(1) - what the model can do & which settings work</span></div>` +
-    `<label${tipAttr(TIPS["t-caps-sel"])}><input type="checkbox" data-caps id="t-caps-sel" checked disabled>` +
-    `Capability check <span class="dim">(always on - the baseline for fair scoring)</span></label>`;
-  box.innerHTML = `<div class="lhdr"><input type="checkbox" id="tp-head"${tipAttr(HEAD_TIP)}><span>Prompt</span></div>` + capBlock + Object.entries(GROUP_INFO).map(([g, what]) => {
-    const ps = state.prompts.filter((p) => p.group === g);
-    return ps.length ? `<div class="grp-head">${groupTitle(g)} <span class="dim">&nbsp;(${ps.length}) - ${what}</span></div>` +
-      ps.map(item).join("") : "";
-  }).join("");
-  bindHeadCheck($("tp-head"), promptBoxes, async () => {  // the rotation may tick kinds that ask first (long sessions, refusal tests, sweep)
+  renderFilters();
+  const row = (p) => {
+    const on = first ? selects(p, state.selection.default) : checked.has(p.id);
+    return `<tr${tipAttr(promptPreview(p))}><td class="pc"><input type="checkbox" value="${esc(p.id)}"${on ? " checked" : ""}></td>` +
+      `<td class="pn">${esc(p.name)}` + p.needs.map((n) => `<span class="needs">${esc(n)}</span>`).join("") +
+      (p.session.task ? '<span class="needs" title="Executes the code the model writes, in a sandbox">runs code</span>' : "") + "</td>" +
+      `<td>${esc(p.group)}</td><td>${esc(p.lang || "-")}</td><td>${esc(p.difficulty || "easy")}</td><td>${esc(p.category)}</td></tr>`;
+  };
+  const order = [...Object.keys(GROUP_INFO), ...new Set(state.prompts.map((p) => p.group))];
+  let sorted = [...new Set(order)].flatMap((g) => state.prompts.filter((p) => p.group === g));
+  const so = state.ptSort;
+  if (so && so.key) sorted = sorted.map((p, i) => [p, i]).sort(([a, i], [b, j]) => (PSORT[so.key](a).localeCompare(PSORT[so.key](b)) * (so.desc ? -1 : 1)) || i - j).map(([p]) => p);
+  const th = (key, title) => `<th class="sort" data-psort="${key}"${so && so.key === key ? ` data-dir="${so.desc ? "desc" : "asc"}"` : ""}${tipAttr(SORT_TIP)}>${title}</th>`;
+  box.innerHTML = `<table class="ptable"><colgroup><col style="width:28px"><col><col style="width:92px"><col style="width:46px"><col style="width:54px"><col style="width:100px"></colgroup><thead><tr><th class="pc"><input type="checkbox" id="tp-head"${tipAttr(HEAD_TIP)}></th>${th("name", "Prompt")}${th("group", "Group")}${th("lang", "Lang")}${th("difficulty", "Level")}${th("category", "Category")}</tr></thead><tbody>` +
+    `<tr class="caps"${tipAttr(TIPS["t-caps-sel"])}><td class="pc"><input type="checkbox" data-caps id="t-caps-sel" checked disabled></td>` +
+    `<td colspan="5" style="white-space:normal">Capability check <span class="dim">(always on - the baseline for fair scoring)</span></td></tr>` +
+    sorted.map(row).join("") + "</tbody></table>";
+  bindHeadCheck($("tp-head"), shownBoxes, async () => {  // the rotation may tick kinds that ask first (long sessions, refusal tests, sweep)
     for (const [kind, ask] of Object.entries(CONFIRM_KIND)) {
       const mine = promptBoxes().filter((i) => i.checked && promptById(i.value).kind === kind);
       if (mine.length && !(await ask())) mine.forEach((i) => { i.checked = false; });
     }
     updateSelCount();
   });
+  applyFilters();
   updateSelCount();
 }
 // The warning dialogs (long sessions, refusal tests, context sweep) come once per browser session (tab) and kind, so
@@ -2251,27 +2264,43 @@ $("t-prompts").addEventListener("change", async (ev) => {
   if (ev.target.checked && p && CONFIRM_KIND[p.kind] && !(await CONFIRM_KIND[p.kind]())) ev.target.checked = false;
   updateSelCount();
 });
-$("t-facets").addEventListener("change", applyFacets);
 $("t-prompts").addEventListener("change", (ev) => { if (ev.target.dataset.caps !== undefined) updateSelCount(); });
-// all / none / default set the facets, which then tick the prompts
-function setFacets(sel) { renderFacets(sel); applyFacets(); }
 function setCaps(on) { if ($("t-caps-sel")) $("t-caps-sel").checked = on; updateSelCount(); }
-$("t-all").addEventListener("click", (ev) => {
+$("t-facets").addEventListener("change", applyFilters);
+$("t-facets").addEventListener("click", (ev) => {
+  const a = ev.target.closest("a[data-pfset]");
+  if (!a) return;
   ev.preventDefault();
-  setFacets(Object.fromEntries(Object.keys(FACET_TITLES).map((f) => [f, state.selection.facets[f].map(([v]) => v)])));
-  setCaps(true);
+  filterBoxes(a.dataset.f).forEach((b) => { b.checked = a.dataset.pfset === "all"; });
+  applyFilters();
 });
-$("t-none").addEventListener("click", (ev) => { ev.preventDefault(); setFacets({ lang: [], difficulty: [], group: [], kind: [] }); setCaps(false); });
-// presets: a facet selection each (English; every difficulty and kind; speed = performance, quality = quality + reliability)
+$("t-facets").addEventListener("input", (ev) => { if (ev.target.id === "t-psearch") applyFilters(); });
+$("t-prompts").addEventListener("click", (ev) => {
+  const h = ev.target.closest("th[data-psort]");
+  if (h) { state.ptSort = nextSort(state.ptSort, h.dataset.psort); renderPromptChecklist(); }
+});
+// a click on the name ticks the row, like on a label
+$("t-prompts").addEventListener("click", (ev) => {
+  const cell = ev.target.closest("td.pn");
+  if (cell) { const b = cell.parentElement.querySelector("input"); b.checked = !b.checked; b.dispatchEvent(new Event("change", { bubbles: true })); }
+});
+// an open filter list closes on a click elsewhere
+document.addEventListener("click", (ev) => {
+  document.querySelectorAll("#t-facets details[open]").forEach((d) => { if (!d.contains(ev.target)) d.open = false; });
+});
+const allFacets = () => Object.fromEntries(Object.keys(FACET_TITLES).map((f) => [f, state.selection.facets[f].map(([v]) => v)]));
+$("t-all").addEventListener("click", (ev) => { ev.preventDefault(); tickByRule(allFacets()); setCaps(true); });
+$("t-none").addEventListener("click", (ev) => { ev.preventDefault(); tickByRule({ lang: [], difficulty: [], group: [], kind: [] }); setCaps(false); });
+// presets: a rule each (English; every difficulty and kind; speed = performance, quality = quality + reliability)
 for (const [id, group] of [["t-speed", ["performance"]], ["t-quality", ["quality", "reliability"]]]) {
   $(id).addEventListener("click", (ev) => {
     ev.preventDefault();
-    const all = (f) => state.selection.facets[f].map(([v]) => v);
-    setFacets({ lang: all("lang").filter((v) => v === "en" || v === ""), difficulty: all("difficulty"), group, kind: all("kind") });
+    const all = allFacets();
+    tickByRule({ ...all, lang: all.lang.filter((v) => v === "en" || v === ""), group });
     setCaps(true);
   });
 }
-$("t-default").addEventListener("click", (ev) => { ev.preventDefault(); setFacets(state.selection.default); setCaps(state.selection.capabilities_default); });
+$("t-default").addEventListener("click", (ev) => { ev.preventDefault(); tickByRule(state.selection.default); setCaps(state.selection.capabilities_default); });
 
 // keep a scroll box at its end while text arrives, unless the user scrolled up (also while its tab is hidden)
 function follow(box, update) {
@@ -2734,7 +2763,7 @@ const STATUS_TIPS = {
 };
 // the blinking dot of a running run: green; yellow once a request of it failed or hit the time limit (the rest still counts)
 const liveTip = (r) => "Running - this page follows it every 10 s." + (r.problems ? `\n\nYellow: ${r.problems} request(s) failed or hit the time limit so far; the results that came in are still valid.` : "");
-const liveDot = (r) => `<span class="live-dot${r.problems ? " warn" : ""}"${tipAttr(liveTip(r))}></span>`;
+const liveDot = (r) => `<span class="live-dot${r.problems ? " problem" : ""}"${tipAttr(liveTip(r))}></span>`;
 // Message colours (the same everywhere): an abort or failure is yellow if the run already has results to use (what came in stays
 // valid), red if nothing usable came in - it is a break then.
 function statusClass(r) {
