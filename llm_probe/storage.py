@@ -23,7 +23,7 @@ CREATE TABLE IF NOT EXISTS runs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     started TEXT NOT NULL,
     finished TEXT,
-    status TEXT NOT NULL,            -- running | done | aborted | failed
+    status TEXT NOT NULL,            -- running | done | aborted | failed | interrupted
     endpoint TEXT NOT NULL,
     kind TEXT NOT NULL,
     base_url TEXT NOT NULL,
@@ -61,6 +61,20 @@ CREATE TABLE IF NOT EXISTS samples (
 CREATE INDEX IF NOT EXISTS idx_results_run ON results(run_id);
 CREATE INDEX IF NOT EXISTS idx_samples_run ON samples(run_id);
 """
+
+
+def mark_interrupted(db: sqlite3.Connection) -> int:
+    """Runs still marked 'running' although no process runs a test (the program or the computer was stopped in the middle):
+    they become 'interrupted' with the reason stored; what came in stays valid. The caller makes sure nobody holds the test lock."""
+    n = 0
+    for r in db.execute("SELECT id, settings FROM runs WHERE status = 'running'").fetchall():
+        settings = json.loads(r["settings"])
+        settings.setdefault("error", "The test was interrupted: the program or the computer was stopped while it ran.")
+        db.execute("UPDATE runs SET status = 'interrupted', settings = ? WHERE id = ? AND status = 'running'", (json.dumps(settings), r["id"]))
+        n += 1
+    if n:
+        db.commit()
+    return n
 
 
 def connect() -> sqlite3.Connection:
@@ -1162,7 +1176,7 @@ def run_contents(db: sqlite3.Connection, run_id: int) -> dict[str, str]:
     if run is None:
         return {"capabilities": "none", "performance": "none", "quality": "none"}
     settings = json.loads(run["settings"])
-    aborted = run["status"] == "aborted"
+    aborted = run["status"] in ("aborted", "interrupted")
     groups = {p.id: p.group for p in all_prompts()}
     agg = {"performance": [0, 0, 0], "quality": [0, 0, 0]}  # [n, valid, bad]
     for r in db.execute("SELECT prompt_id, ok, cut FROM results WHERE run_id = ?"
@@ -1236,7 +1250,7 @@ def capability_hints(db: sqlite3.Connection, endpoint: str) -> dict[str, dict]:
     for the model list of the Test tab (a capability a run did not test is missing). 'tested' = the run's own results show it,
     'check' = only its capability check says so; chat is 'yes' (tested) once a run got any valid answer."""
     out: dict[str, dict] = {}
-    for r in db.execute("SELECT id, model, settings FROM runs WHERE endpoint = ? AND status IN ('done', 'aborted', 'failed') ORDER BY id DESC", (endpoint,)):
+    for r in db.execute("SELECT id, model, settings FROM runs WHERE endpoint = ? AND status IN ('done', 'aborted', 'failed', 'interrupted') ORDER BY id DESC", (endpoint,)):
         if r["model"] in out:
             continue
         st = json.loads(r["settings"])

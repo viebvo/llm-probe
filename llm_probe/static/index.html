@@ -1373,7 +1373,7 @@ const COL = {
   "Endpoint": "Endpoint (server) that was tested.",
   "Type": "Server type: ollama, vllm, openwebui (Open WebUI in front of Ollama) or openai (any OpenAI-compatible server).",
   "Model": "Model id as reported by the server.",
-  "Status": "done = finished; aborted = stopped with Abort; failed = error (e.g. warmup failed, embedding model, every request failed); running = in progress. aborted / failed are yellow when results came in before (they stay valid) and red when nothing usable came in.",
+  "Status": "done = finished; aborted = stopped with Abort; interrupted = cut off because the program or the computer was stopped; failed = error (e.g. warmup failed, embedding model, every request failed); running = in progress. aborted / failed are yellow when results came in before (they stay valid) and red when nothing usable came in.",
   "Placement": "How the model was loaded (checked after the warmup): share on CPU/GPU and VRAM per GPU. Yellow = part of the model runs on the CPU, which slows generation down noticeably even at a few percent.",
   "Thinking": "Whether the model reasoned before answering, from the stored responses of the single phase.\n'yes 64 %': on average 64 % of the output was reasoning; 'yes 7/10': only some responses; 'off -> ...': Thinking setting of the test.\nYellow: switched off, but the model reasoned anyway.",
   "Avg tok/s": "Decode speed: generated tokens per second after the first token (prompt processing excluded). Median per prompt, averaged over the prompts. Higher is better.",
@@ -2759,6 +2759,7 @@ const KIND_TIPS = {
 };
 const STATUS_TIPS = {
   done: "Finished.", running: "Still in progress.", aborted: "Stopped with Abort - results are incomplete.",
+  interrupted: "Cut off: the program or the computer was stopped while the test ran. What came in before is kept and still valid; the run is not finished.",
   failed: "Failed, e.g. the warmup did not work (model not loadable, embedding model, server down) or every request failed; see the log of the test.",
 };
 // the blinking dot of a running run: green; yellow once a request of it failed or hit the time limit (the rest still counts)
@@ -2767,11 +2768,11 @@ const liveDot = (r) => `<span class="live-dot${r.problems ? " problem" : ""}"${t
 // Message colours (the same everywhere): an abort or failure is yellow if the run already has results to use (what came in stays
 // valid), red if nothing usable came in - it is a break then.
 function statusClass(r) {
-  return r.status === "damaged" ? "red" : r.status === "aborted" || r.status === "failed" ? (r.usable ? "yellow" : "red") : "";
+  return r.status === "damaged" ? "red" : r.status === "aborted" || r.status === "failed" || r.status === "interrupted" ? (r.usable ? "yellow" : "red") : "";
 }
 function statusTip(r) {
   const base = STATUS_TIPS[r.status] || "";
-  if (r.status !== "aborted" && r.status !== "failed") return base;
+  if (r.status !== "aborted" && r.status !== "failed" && r.status !== "interrupted") return base;
   return base + (r.usable ? "\n\nYellow: results came in before it stopped - they are still valid." : "\n\nRed: nothing usable came in.");
 }
 
@@ -2917,7 +2918,7 @@ function renderRun(d) {
     (meas ? ` · ${m("prompts", "prompts: " + esc(groupCounts(d) || "-"))}` : "") + "<br>" +
     r.server_lines.map((l) => `<span class="tip"${tipAttr(COL["line:" + l.name])}>${esc(l.name)}</span>: ` +
       `<span class="${l.warn ? "yellow" : ""}">${l.name === "Server parameters" ? paramSpans(l.text) : esc(l.text)}</span>`).join("<br>") +
-    (s.error ? `<br><span class="${statusClass(r) || "red"}"><b>Why this run ${r.status === "aborted" ? "stopped" : "failed"}:</b> ${esc(s.error)}</span>` : "") + "</div>";
+    (s.error ? `<br><span class="${statusClass(r) || "red"}"><b>Why this run ${r.status === "aborted" || r.status === "interrupted" ? "stopped" : "failed"}:</b> ${esc(s.error)}</span>` : "") + "</div>";
   out += capabilitySection(d);
   if (!meas) return out + ((s.report || []).length ? "" : '<p class="dim">Nothing recorded for this run.</p>');
   const runs = [{ i: 0, L: "", name: `run #${r.id}`, d }];

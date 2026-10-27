@@ -199,6 +199,12 @@ def mask_hosts(request: web.Request, data, runs: list[dict] | None = None):
     return mask_data(data, hosts - {"", "localhost", "127.0.0.1", "::1"})
 
 
+def sweep_interrupted(request: web.Request, db) -> None:
+    """A run that says 'running' while nobody runs a test (this server's own test counts) was cut off: show it as interrupted."""
+    if not request.app["bench"].running and not holder():
+        storage.mark_interrupted(db)
+
+
 def error(msg: str, status: int = 400) -> web.Response:
     return web.json_response({"error": msg}, status=status)
 
@@ -821,8 +827,9 @@ async def delete_prompt(request: web.Request) -> web.Response:
 
 
 @routes.get("/api/runs")
-async def runs(_: web.Request) -> web.Response:
+async def runs(request: web.Request) -> web.Response:
     db = storage.connect()
+    sweep_interrupted(request, db)
     caps = storage.results_capabilities(db)  # one pass for all runs, combined with each run's capability check below
     out, damaged = [], []
     for r in storage.list_runs(db):
@@ -910,9 +917,10 @@ async def import_runs(request: web.Request) -> web.Response:
 
 
 @routes.get("/api/runs/version")
-async def runs_version(_: web.Request) -> web.Response:
+async def runs_version(request: web.Request) -> web.Response:
     """Cheap check whether the run list changed (also by command-line runs), for refreshing it."""
     db = storage.connect()
+    sweep_interrupted(request, db)
     v = storage.runs_version(db)
     db.close()
     return web.json_response({"version": v})
@@ -921,6 +929,7 @@ async def runs_version(_: web.Request) -> web.Response:
 @routes.get("/api/runs/{id:\\d+}")
 async def run(request: web.Request) -> web.Response:
     db = storage.connect()
+    sweep_interrupted(request, db)
     d = run_detail(db, int(request.match_info["id"]))
     db.close()
     if d and request.query.get("mask") == "1":  # for a printed report: no server addresses

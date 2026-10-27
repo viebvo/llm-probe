@@ -534,7 +534,8 @@ It looks the same in a run and in a comparison. The comparison just has the bars
 * **Message colours are the same everywhere.** The colour codes of the evaluations (dials, bars, check squares) are a separate system and stay as they are.
     * **Yellow** means an error or an abort that does not invalidate what was already gained. Examples: a user abort or a failure after results came in, a failed single request, a cut-off response, a skipped prompt.
     * **Red** means the result is broken. Nothing usable came in. Examples: an endpoint that cannot be reached, a failed warm-up, an abort before the first result, a run in which every request failed (it is stored as *failed*), a failed action, a failed query of the Q button.
-    * In the Results list, `aborted` and `failed` are yellow when results came in and red when not. The tooltip says which.
+    * In the Results list, `aborted`, `failed` and `interrupted` are yellow when results came in and red when not. The tooltip says which.
+    * `interrupted` means the program or the computer was stopped while the test ran. It is set when nobody runs a test any more. What came in before is kept.
 
 **Greyed out, hidden or locked**
 

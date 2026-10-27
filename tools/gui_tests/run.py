@@ -464,9 +464,40 @@ def check_numbers(s: Suite) -> None:
 
 
 # the order matters: the checks that start tests come last (they add runs to the scratch database)
+def check_interrupted(s: Suite) -> None:
+    """A run left on 'running' by a stopped program becomes 'interrupted' - but not while some process holds the test lock."""
+    import fcntl
+    import sqlite3
+
+    def add() -> int:
+        db = sqlite3.connect(s.home / "results.db")
+        cur = db.execute("INSERT INTO runs (started, status, endpoint, kind, base_url, model, settings, note) VALUES "
+                         "('2026-01-01T10:00:00', 'running', 'x', 'ollama', 'http://h', 'm', '{}', '')")
+        db.commit(); rid = cur.lastrowid; db.close()
+        return rid
+
+    def status(rid: int) -> str:
+        return next(r["status"] for r in json.loads(s.get("/api/runs")[1]) if r["id"] == rid)
+
+    rid = add()
+    with open(s.home / "test.lock", "a+") as f:
+        fcntl.flock(f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)  # another process "runs a test"
+        s.ok("a running run stays running while the test lock is held", status(rid) == "running")
+        fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+    s.ok("with nobody running a test it becomes 'interrupted'", status(rid) == "interrupted")
+    d = json.loads(s.get(f"/api/runs/{rid}")[1])
+    s.ok("the reason is stored with the run", "interrupted" in d["run"]["settings"].get("error", ""), d["run"]["settings"])
+    pg = s.page(); pg.evaluate("showTab('runs')"); pg.wait_for_timeout(1200)
+    cell = pg.evaluate(f"(() => {{ const r = [...document.querySelectorAll('#runs-table tbody tr')].find(t => t.textContent.includes('#{rid} ') || t.children[1].textContent.trim() === '{rid}'); return r ? r.textContent : ''; }})()")
+    s.ok("the run list shows it as interrupted, without a live dot", "interrupted" in cell and "running" not in cell and pg.evaluate("document.querySelectorAll('#runs-table .live-dot').length") == 0, cell[:120])
+    s.ok("no page errors", not pg.errors, pg.errors[:2])
+    pg.close()
+    db = sqlite3.connect(s.home / "results.db"); db.execute("DELETE FROM runs WHERE id = ?", (rid,)); db.commit(); db.close()
+
+
 CHECKS = [("tour", check_tour), ("home", check_home), ("results", check_results), ("compare", check_compare), ("responses", check_responses),
           ("prompts", check_prompts), ("refusal", check_refusal), ("settings", check_settings), ("test_tab", check_test_tab), ("security", check_security),
-          ("numbers", check_numbers), ("batch_thinking", check_batch_thinking), ("live_output", check_live_output)]
+          ("numbers", check_numbers), ("batch_thinking", check_batch_thinking), ("live_output", check_live_output), ("interrupted", check_interrupted)]
 UPDATE_BASELINE = False
 
 
