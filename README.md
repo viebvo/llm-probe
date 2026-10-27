@@ -38,6 +38,7 @@ It is not a benchmark for flagship models. Strong models score near the ceiling 
 * [What the tests are meant to show](#what-the-tests-are-meant-to-show) and [What is measured](#what-is-measured)
 * [Harder tests](#harder-tests), [Refusal tests](#refusal-tests-safety) and [Long sessions](#long-sessions-deviation)
 * [Security notes](#security-notes)
+* [How this project was built](#how-this-project-was-built)
 
 ## Screenshots
 
@@ -1451,6 +1452,15 @@ Linux with user namespaces gives the strongest isolation. Elsewhere, only the in
 **Reporting**
 
 Please use GitHub's private vulnerability reporting (see `SECURITY.md`).
+
+## How this project was built
+
+> **TL;DR** A side project of under two weeks. The author made the decisions, reviewed and tested. Every line of code was written by Claude Code. A statistics page shows where the effort went.
+
+* **Who did what.** The author had the idea, made the design decisions, reviewed and live-tested every part. The code was written by Claude Code (Anthropic's coding agent). The author states that not a single line was added or changed by hand.
+* **How much.** About 5 million output tokens, about 45 hours of active working time and about 360 messages. These are rounded figures of the agent's side only. The author's own thinking and testing time is not counted.
+* **Where the effort went.** About 30 % on the GUI, 23 % on verification, 16 % on the program logic, 14 % on prompt design and 10 % on documentation. This fits the author's expectation: the core stood quickly, and most of the time went into making the tool usable.
+* **More.** The [statistics page](https://viebvo.github.io/llm-probe/statistics.html) has the charts, the version history, a reflection by the author and the agent, and the agent's own view.
 
 ## Author, credits and license
 

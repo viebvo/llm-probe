@@ -7,3 +7,6 @@ dist/
 *.egg-info/
 temp/
 *.zip
+
+# the private statistics edition must never be published
+*PRIVATE*
