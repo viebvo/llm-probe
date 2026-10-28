@@ -32,7 +32,7 @@ It is not a benchmark for flagship models. Strong models score near the ceiling 
 
 **Where to find what**
 
-* [Installation and start](#installation-and-start)
+* [Installation, start and update](#installation-start-and-update)
 * [Workflow](#workflow): Endpoints, Test, Results, Compare, Responses, Prompts
 * [Command line](#command-line)
 * [What the tests are meant to show](#what-the-tests-are-meant-to-show) and [What is measured](#what-is-measured)
@@ -50,9 +50,9 @@ The screenshots show the [example results](#example-results) that come with the 
 | **Run details** - the gauges, the speed numbers, scaling under load, resources and where the time goes<br>[![Run details](docs/img/run-details.png#gh-light-mode-only)](docs/img/run-details.png)[![Run details](docs/img/run-details-dark.png#gh-dark-mode-only)](docs/img/run-details-dark.png) | **Compare** - up to 16 runs side by side, a click on a run highlights it everywhere<br>[![Compare](docs/img/compare.png#gh-light-mode-only)](docs/img/compare.png)[![Compare](docs/img/compare-dark.png#gh-dark-mode-only)](docs/img/compare-dark.png) |
 | **Responses** - what the models actually answered, repetition by repetition, with the question on top<br>[![Responses](docs/img/responses.png#gh-light-mode-only)](docs/img/responses.png)[![Responses](docs/img/responses-dark.png#gh-dark-mode-only)](docs/img/responses-dark.png) | **Home** - what the tool is for and how to read the gauges<br>[![Home](docs/img/home.png#gh-light-mode-only)](docs/img/home.png)[![Home](docs/img/home-dark.png#gh-dark-mode-only)](docs/img/home-dark.png) |
 
-## Installation and start
+## Installation, start and update
 
-> **TL;DR** Needs Python 3.10 or newer. Double-click `run-web.bat` (Windows) or `run-web.command` (macOS/Linux). The browser opens on `http://127.0.0.1:8080/`.
+> **TL;DR** Needs Python 3.10 or newer. Double-click `run-web.bat` (Windows) or `run-web.command` (macOS/Linux). The browser opens on `http://127.0.0.1:8080/`. To update, unpack the new zip over the old folder: your results stay.
 
 **What you need**
 
@@ -71,6 +71,14 @@ Nothing else has to be installed by hand. The start scripts create a private Pyt
 
 `run-web.*` start the web UI for this computer only (`127.0.0.1:8080`) and open the browser. The UI starts on a **Home** page that explains the four steps: add an endpoint, select models and prompts, start, look at the results.
 
+**A security warning on the first start**
+
+Windows may ask "The publisher could not be verified. Do you want to run this software?" when you start `run-web.bat`. This is normal. Windows marks every file from a download, and the script is not signed (a signature costs money). The scripts are plain text: open them in an editor if you want to see what they do.
+
+* Click **Run**. To be sure the zip is the one from this page, compare its SHA-256 with the value on the Releases page.
+* To avoid the question: before unpacking, right-click the zip, choose *Properties* and tick **Unblock**. Or unpack with a tool that does not pass the mark on, such as 7-Zip.
+* macOS can ask something similar for `run-web.command`. Right-click the file, choose *Open* and confirm once.
+
 **Install as a package**
 
 You can also install the project as a package, for example `pipx install .` (or `pip install .` in a virtual environment). It provides the command `llm-probe`, with the same options as `run.sh`. Installed this way, the data lives in the user's data folder instead of `data/`:
@@ -78,6 +86,16 @@ You can also install the project as a package, for example `pipx install .` (or 
 * Linux: `~/.local/share/llm-probe`
 * Windows: `%APPDATA%\llm-probe`
 * macOS: `~/Library/Application Support/llm-probe`
+
+**How to update**
+
+* Close the program (close the window of the start script, or press Ctrl+C).
+* Download the new zip from the [Releases page](https://github.com/viebvo/llm-probe/releases). Unpack it **into the same folder** and overwrite all files.
+* **Your results are safe.** Endpoints, results, custom prompts and images live in the `data/` folder. The zip has no `data/` folder, so nothing there is touched. A copy of `data/` before the update does not hurt.
+* Start as usual. A new version opens older results. If the dependencies changed, the start script installs them again.
+* The version is shown in the header of the page, next to the name. If a page was open during the update, it shows a notice "The server was restarted" with a **Reload page** button. The page is never reloaded by itself, so nothing you typed is lost.
+* Files you changed yourself in the program folder are overwritten.
+* Installed as a package: unpack the new version and run `pipx install --force .` again. The data lives in the user's data folder and stays.
 
 **Start options**
 
@@ -91,6 +109,7 @@ You can also install the project as a package, for example `pipx install .` (or 
 * Without `--password`, the web UI requires no login.
 * `--host` sets the listen address. The default is `127.0.0.1`, so only this computer can reach it. Opening it to the network needs an explicit `--host 0.0.0.0`. It prints a warning if no password is set.
 * `--server` is accepted and does the same as no option (the web UI).
+* `--open-browser` opens the page in your browser as soon as the server is ready, on the port it really got. The `run-web.*` scripts use it. So on the very first start the browser waits until the dependencies are installed and the server is up.
 * If the port is in use, the next free one is taken. The start says so (and whether another LLM Probe web UI is running there) and prints the address.
 * User and password can also be passed as `LLM_PROBE_USER` and `LLM_PROBE_PASSWORD`, so they do not show up in the process list.
 * Basic auth over plain HTTP is not encrypted. Only use it inside a trusted LAN.
@@ -566,7 +585,7 @@ LLM_PROBE_API_KEY=... ./run.sh --configure cloud --url https://api.example.com -
 * With several models, a batch runs one after another. Each model is stored as its own run.
 * Without a model, the last selection of the endpoint is used.
 * The settings are those last used in the web UI, unless you give them. These options override them for this run only. They are not saved: `--temperature`, `--max-tokens`, `--thinking`, `--reps`, `--timeout`, `--concurrency 1,2,4,8`, `--requests-per-level`, `--no-single`, `--no-concurrency`, `--capabilities`, `--capabilities-only`.
-* The prompts are chosen like in the web UI. Use the facets `--lang`, `--difficulty`, `--group` and `--kind` (comma separated). The defaults are those of a new test in the web UI, and `none` means prompts without a language. Or give exactly the ids with `--prompts`.
+* The prompts are chosen by rules, the same ones as the default and the presets of the web UI. Use the facets `--lang`, `--difficulty`, `--group` and `--kind` (comma separated). The defaults are those of a new test in the web UI, and `none` means prompts without a language. Or give exactly the ids with `--prompts`.
 * The progress is printed as plain text.
 * One test runs at a time (see above). While another process runs one, the command stops and says who. `--force` starts anyway.
 * Ctrl+C aborts. The run is stored as aborted.
@@ -1460,6 +1479,7 @@ Please use GitHub's private vulnerability reporting (see `SECURITY.md`).
 * **Who did what.** The author had the idea, made the design decisions, reviewed and live-tested every part. The code was written by Claude Code (Anthropic's coding agent). The author states that not a single line was added or changed by hand.
 * **How much.** About 5 million output tokens, about 45 hours of active working time and about 360 messages. These are rounded figures of the agent's side only. The author's own thinking and testing time is not counted.
 * **Where the effort went.** About 30 % on the GUI, 23 % on verification, 16 % on the program logic, 14 % on prompt design and 10 % on documentation. This fits the author's expectation: the core stood quickly, and most of the time went into making the tool usable.
+* **Layout of the web page.** `llm_probe/static/` holds `index.html` (the structure), `style.css` and one script per area: `core.js` (helpers, shared list behaviour), `tips.js` (all tooltips), `endpoints.js`, `test-models.js` and `test.js` (the Test tab), `results.js`, `charts.js`, `tokens.js`, `sessions.js`, `compare.js`, `responses.js`, `prompts.js` and `init.js` (the start). The scripts are plain files without a build step. They load in this order and share one scope.
 * **More.** The [statistics page](https://viebvo.github.io/llm-probe/statistics.html) has the charts, the version history, a reflection by the author and the agent, and the agent's own view.
 
 ## Author, credits and license

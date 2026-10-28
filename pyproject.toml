@@ -23,7 +23,7 @@ include = ["llm_probe*"]  # with the data folders static/ and assets/images/
 version = { attr = "llm_probe.__version__" }
 
 [tool.setuptools.package-data]
-"*" = ["*.html", "*.jpg", "*.md"]
+"*" = ["*.html", "*.js", "*.css", "*.jpg", "*.md"]
 
 [project.urls]
 Homepage = "https://github.com/viebvo/llm-probe"

@@ -42,6 +42,8 @@ def build_parser() -> argparse.ArgumentParser:
                      help="address to listen on (default: 127.0.0.1 = this computer only; 0.0.0.0 = the whole "
                           "network - then set --password)")
     web.add_argument("--port", type=int, default=8080, help="port to listen on (default: 8080)")
+    web.add_argument("--open-browser", action="store_true",
+                     help="open the web UI in the browser as soon as the server listens (used by the double-click start scripts)")
     web.add_argument("--user", default=os.environ.get("LLM_PROBE_USER", "admin"),
                      help="basic auth user (default: admin, env LLM_PROBE_USER)")
     web.add_argument("--allow-host", action="append", default=[], metavar="NAME",
@@ -402,5 +404,5 @@ def main(argv: list[str] | None = None) -> int:
         return list_prompt_table(args)
     from .server import serve  # imported lazily: the batch modes do not need the web server
 
-    serve(args.host, args.port, args.user, args.password, tuple(args.allow_host))
+    serve(args.host, args.port, args.user, args.password, tuple(args.allow_host), args.open_browser)
     return 0

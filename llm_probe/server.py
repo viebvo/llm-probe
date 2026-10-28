@@ -12,6 +12,7 @@ import os
 import re
 import socket
 import time
+import webbrowser
 from urllib.parse import urlsplit
 from dataclasses import asdict
 from datetime import datetime
@@ -245,6 +246,10 @@ BURST_CHUNKS = 100  # more chunks than this within BURST_WINDOW seconds (1000 pe
 BURST_WINDOW = 0.1
 GROUP_SECONDS = 0.01  # ... every 10 ms (the usual speed of a model is far below: every chunk goes out at once)
 
+BOOT_ID = os.urandom(4).hex()  # changes with every start of the server: an open page sees that it was restarted (maybe updated)
+QUIET_PHASES = ("warmup", "capabilities", "load")  # phases without live output (the page shows why; see PHASE_NOTE in test.js)
+
+
 class BenchState:
     """The single benchmark the server can run at a time, plus its live output for polling clients."""
 
@@ -286,6 +291,10 @@ class BenchState:
             self.write(result_line(d["prompt"], d["rep"], d["result"], d.get("word", "")))
         elif kind == "phase":
             self.phase = d["name"]
+            if d["name"] in QUIET_PHASES:  # nothing streams now: a stream opened or reopened later must not replay the last request
+                self.flush()
+                self.out = {"id": self.out["id"] + 1, "title": ""}
+                self.parts = {"think": [], "text": []}
         elif kind == "stream_start":
             self.flush()
             self.out = {"id": self.out["id"] + 1, "title": d["title"]}
@@ -376,7 +385,7 @@ class BenchState:
         return {
             "running": self.running, "status": self.status, "title": self.title, "run_id": self.run_id, "phase": self.phase,
             "done": self.done, "total": self.total, "sample": self.sample,
-            "log": [x for x in self.log if x["seq"] > since], "seq": self.seq, "out": out,
+            "log": [x for x in self.log if x["seq"] > since], "seq": self.seq, "out": out, "boot": BOOT_ID,
             # a test started by another process (command line or a second server) on the same data
             "other": None if self.running else (lambda h: holder_text(h) if h else None)(holder()),
         }
@@ -387,6 +396,16 @@ class BenchState:
 @routes.get("/")
 async def index(_: web.Request) -> web.FileResponse:
     return web.FileResponse(STATIC_DIR / "index.html")
+
+
+@routes.get(r"/static/{name:[A-Za-z0-9_-]+\.(?:js|css)}")
+async def static_file(request: web.Request) -> web.StreamResponse:
+    """The parts of the page (style sheet, scripts): flat file names only, so nothing outside the static folder can be asked for.
+    no-cache: the browser asks again, so an update is never shown with old scripts."""
+    path = STATIC_DIR / request.match_info["name"]
+    if not path.is_file():
+        return error("Unknown file.", 404)
+    return web.FileResponse(path, headers={"Cache-Control": "no-cache"})
 
 
 @routes.get("/api/config")
@@ -1272,7 +1291,7 @@ def is_llm_probe(host: str, port: int) -> bool:
         return False
 
 
-def serve(host: str, port: int, user: str = "", password: str = "", allowed_hosts: tuple[str, ...] = ()) -> None:
+def serve(host: str, port: int, user: str = "", password: str = "", allowed_hosts: tuple[str, ...] = (), open_browser: bool = False) -> None:
     local = host in ("127.0.0.1", "localhost", "::1")
     if password:
         print(f"Basic auth enabled (user '{user}').", flush=True)
@@ -1297,5 +1316,10 @@ def serve(host: str, port: int, user: str = "", password: str = "", allowed_host
         note = " - only reachable from this computer" + ("" if password else ", no password")
     else:
         note = ""
-    web.run_app(make_app(user, password, local, allowed_hosts), host=host, port=actual, access_log=None,
+    app = make_app(user, password, local, allowed_hosts)
+    if open_browser:  # from here, not from the start script: the browser opens when the server really listens, on the port it really got
+        async def open_page(_: web.Application) -> None:
+            asyncio.get_running_loop().call_later(0.5, lambda: asyncio.get_running_loop().run_in_executor(None, webbrowser.open, f"http://{shown}:{actual}/"))
+        app.on_startup.append(open_page)
+    web.run_app(app, host=host, port=actual, access_log=None,
                 print=lambda _: print(f"Web UI on http://{shown}:{actual}/{note} (Ctrl+C to stop)", flush=True))

@@ -312,6 +312,14 @@ def check_test_tab(s: Suite) -> None:
     pg.click("#t-quality"); pg.wait_for_timeout(200)
     b = pg.evaluate("promptBoxes().filter(i => i.checked).length")
     s.ok("the speed / quality presets select different prompts", a > 0 and b > 0 and a != b, [a, b])
+    pos = pg.evaluate("(() => { const a = document.querySelector('[data-tip=grp-single]').getBoundingClientRect(), b = document.querySelector('[data-tip=grp-load]').getBoundingClientRect(); return [Math.abs(a.top - b.top) < 4, b.left > a.right - 2]; })()")
+    wide = s.page(width=2000); wide.evaluate("showTab('test')"); wide.select_option("#t-ep", "mock-ollama"); wide.wait_for_timeout(3000)
+    tops = wide.evaluate("['t-temp', 't-maxtok', 't-timeout', 't-numctx'].map(id => Math.round($(id).getBoundingClientRect().top))")
+    s.ok("Whole test: with room, all fields (max_tokens and Timeout next to each other) share one row", len(set(tops)) == 1, tops)
+    order = wide.evaluate("(() => { const l = [...document.querySelectorAll('[data-tip=grp-whole] .fields > *')].map(e => e.dataset.tip); return l.indexOf('t-maxtok') + 1 === l.indexOf('t-timeout'); })()")
+    s.ok("max_tokens and Timeout are neighbours in the order, so they wrap together", order)
+    wide.close()
+    s.ok("Single requests and Concurrent load sit side by side", pos == [True, True], pos)
     # prompt table: one row per prompt with Group / Lang / Level / Category; filters only narrow the view
     t = pg.evaluate("""(() => { const p = JSON.parse(JSON.stringify(state.prompts[0])); p.id = 'my_custom'; p.name = 'My custom prompt'; p.category = 'custom';
         p.lang = ''; p.difficulty = 'easy'; p.group = 'quality'; p.builtin = false; state.prompts.push(p); renderPromptChecklist();
@@ -443,6 +451,17 @@ def check_security(s: Suite) -> None:
     s.ok("CSP, nosniff and frame headers", "default-src 'none'" in (r.getheader("Content-Security-Policy") or "") and r.getheader("X-Content-Type-Options") == "nosniff" and r.getheader("X-Frame-Options") == "DENY")
     for path in ("/api/config", "/api/runs", "/api/export?runs=1,2"):
         s.ok(f"no secret in {path}", FAKE_KEY not in s.get(path)[1])
+    # the parts of the page (style sheet and scripts) are served by name only: nothing else of the folder or the disk
+    page = s.get("/")[1]
+    parts = [m for m in __import__("re").findall(r'(?:src|href)="(/static/[^"]+)"', page)]
+    s.ok("the page links its style sheet and the scripts", len(parts) >= 10 and parts[0].endswith(".css"), parts[:3])
+    bad = [p for p in parts if s.get(p)[0] != 200]
+    s.ok("every part is served", not bad, bad)
+    h = http.client.HTTPConnection(*[(s.base.split('//')[1].split(':')[0]), int(s.base.rsplit(':', 1)[1])])
+    h.request("GET", parts[1]); r = h.getresponse(); r.read()
+    s.ok("scripts come as JavaScript, uncached", "javascript" in (r.getheader("Content-Type") or "") and r.getheader("Cache-Control") == "no-cache", r.getheaders())
+    for path in ("/static/index.html", "/static/../server.py", "/static/%2e%2e/server.py", "/static/..%2fserver.py", "/static/nope.js", "/static/core.py", "/static/sub/core.js"):
+        s.ok(f"{path} is not served", s.get(path)[0] in (404, 400), s.get(path)[0])
     # a damaged address in a run (imported from a file) must neither crash the masked export / report nor leak the host through it
     from llm_probe.privacy import mask_data
     for bad in ("http://secret-box.lan:99x/v1", "http://[secret-box.lan/v1", "secret-box.lan:11434"):
@@ -495,9 +514,60 @@ def check_interrupted(s: Suite) -> None:
     db = sqlite3.connect(s.home / "results.db"); db.execute("DELETE FROM runs WHERE id = ?", (rid,)); db.commit(); db.close()
 
 
+def check_live_replay(s: Suite) -> None:
+    """A live output stream opened (again) during a phase without output must not bring back the last request."""
+    from llm_probe.server import BenchState
+    b = BenchState()
+    b.emit("phase", name="single")
+    b.emit("stream_start", title="Story EN"); b.emit("stream", think="", text="Once upon a time")
+    first = b.watch().get_nowait()
+    s.ok("while a request streams, a new stream replays it", first["title"] == "Story EN" and "Once upon" in first["text"], first)
+    for phase in ("load", "warmup", "capabilities"):
+        b.emit("stream_start", title="Story EN"); b.emit("stream", think="", text="Once upon a time")
+        b.emit("phase", name=phase)
+        again = b.watch().get_nowait()
+        s.ok(f"in the {phase} phase a new stream starts empty", again["title"] == "" and again["text"] == "" and again["think"] == "", again)
+    b.emit("phase", name="single"); b.emit("stream_start", title="Next"); b.emit("stream", think="", text="x")
+    s.ok("the next request streams again", b.watch().get_nowait()["title"] == "Next")
+
+
+def check_restart_notice(s: Suite) -> None:
+    pg = s.page(); pg.wait_for_timeout(1500)
+    s.ok("no restart notice on a fresh page", pg.evaluate("$('restart-bar').hidden && !!state.boot"), pg.evaluate("state.boot"))
+    pg.evaluate("state.boot = 'an-older-start'; pollBench()"); pg.wait_for_timeout(1200)
+    s.ok("a changed server start id shows the notice", pg.evaluate("!$('restart-bar').hidden"))
+    s.ok("the page itself is not reloaded by it", pg.evaluate("state.boot") == "an-older-start")
+    pg.click("#restart-reload"); pg.wait_for_load_state("networkidle"); pg.wait_for_timeout(1500)
+    s.ok("the button reloads: notice gone, the new start id is known", pg.evaluate("$('restart-bar').hidden && state.boot !== 'an-older-start' && !!state.boot"))
+    s.ok("no page errors", not pg.errors, pg.errors[:2])
+    pg.close()
+
+
+def check_open_browser(s: Suite) -> None:
+    """--open-browser opens the page once the server listens, on the port it really got (the start scripts use it)."""
+    home = Path(tempfile.mkdtemp(prefix="llm-probe-open-"))
+    seen = home / "opened.txt"
+    opener = home / "opener.sh"
+    opener.write_text(f'#!/bin/sh\necho "$1" >> "{seen}"\n'); opener.chmod(0o755)
+    blocker = socket.socket(); blocker.bind(("127.0.0.1", 0)); blocker.listen(); busy = blocker.getsockname()[1]  # the wanted port is taken
+    server = subprocess.Popen([sys.executable, "-m", "llm_probe", "--server", "--port", str(busy), "--open-browser"], cwd=ROOT,
+                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env={**os.environ, "LLM_PROBE_HOME": str(home), "BROWSER": f"{opener} %s"})
+    try:
+        for _ in range(60):
+            if seen.exists() and seen.read_text().strip():
+                break
+            time.sleep(0.25)
+        got = seen.read_text().split() if seen.exists() else []
+        s.ok("the browser is opened by the server", len(got) == 1, got)
+        s.ok("with the port the server really got (the wanted one was busy)", got and got[0].startswith("http://127.0.0.1:") and got[0] != f"http://127.0.0.1:{busy}/", got)
+    finally:
+        server.terminate(); server.wait(timeout=10); blocker.close()
+        shutil.rmtree(home, ignore_errors=True)
+
+
 CHECKS = [("tour", check_tour), ("home", check_home), ("results", check_results), ("compare", check_compare), ("responses", check_responses),
           ("prompts", check_prompts), ("refusal", check_refusal), ("settings", check_settings), ("test_tab", check_test_tab), ("security", check_security),
-          ("numbers", check_numbers), ("batch_thinking", check_batch_thinking), ("live_output", check_live_output), ("interrupted", check_interrupted)]
+          ("numbers", check_numbers), ("batch_thinking", check_batch_thinking), ("live_output", check_live_output), ("interrupted", check_interrupted), ("live_replay", check_live_replay), ("restart_notice", check_restart_notice), ("open_browser", check_open_browser)]
 UPDATE_BASELINE = False
 
 
