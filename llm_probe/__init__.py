@@ -1,3 +1,3 @@
 """LLM Probe: benchmark, check and compare LLM endpoints (Ollama, vLLM, Open WebUI, OpenAI-compatible)."""
 
-__version__ = "0.18.0"
+__version__ = "0.18.1"

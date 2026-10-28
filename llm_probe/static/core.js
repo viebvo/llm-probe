@@ -193,6 +193,9 @@ function fillSelect(sel, options, placeholder, keep = true) {
     options.map(([label, value]) => `<option value="${esc(value)}">${esc(label)}</option>`).join("");
   if (keep && options.some(([, v]) => String(v) === current)) sel.value = current;
 }
+// the text of a cell without its markup, for comparing cells (an inert template: nothing in it runs or loads)
+const plainEl = document.createElement("template");
+function plainText(html) { plainEl.innerHTML = html; return plainEl.content.textContent; }
 // Group shading: rows that share the first-column value (a group) get the same tint; it flips when the value
 // changes. A blank first cell is a continuation of the group above; a group-heading row (cls "grp") resets it.
 function shadeRows(rows) {
@@ -200,7 +203,7 @@ function shadeRows(rows) {
   return rows.map((r) => {
     if (r.cls && /grp/.test(r.cls)) { prevKey = null; return r; }
     const cells = r.cells || r;
-    let key = r.group != null ? String(r.group) : String(cells[0] ?? "").replace(/<[^>]*>/g, "").trim();
+    let key = r.group != null ? String(r.group) : plainText(String(cells[0] ?? "")).trim();
     if (key === "") key = prevKey;  // continuation row (e.g. further repetitions of the same prompt)
     if (prevKey === null) shade = 0;
     else if (key !== prevKey) shade ^= 1;

@@ -34,10 +34,11 @@ from .config import (DEFAULT_PORTS, clean_currency, MAX_BATCH_RUNS, BenchSetting
 from .lock import TestLock, holder, holder_text
 from .monitor import test_ssh
 from .privacy import host_of, mask_data
-from .prompts import (CHECK_MODES, DEFAULT_SELECTION, DIFFICULTIES, IMAGES_ASSETS, IMAGES_DIR, LANGUAGES, PROMPTSET_VERSION, Prompt, all_prompts,
-                      edit_custom_prompts, load_custom_prompts, SAFETY_NOTICE, SAFETY_WHERE, image_exists, image_path, save_image, selection_facets)
+from .prompts import (CHECK_MODES, DEFAULT_SELECTION, DIFFICULTIES, IMAGES_ASSETS, LANGUAGES, PROMPTSET_VERSION, Prompt, all_prompts,
+                      edit_custom_prompts, load_custom_prompts, SAFETY_NOTICE, SAFETY_WHERE, image_exists, image_path, save_image, upload_path, selection_facets)
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
+STATIC_PARTS = {f.name: f for f in STATIC_DIR.iterdir() if f.suffix in (".js", ".css")}  # the style sheet and scripts the page links
 MAX_LOG = 2000
 
 routes = web.RouteTableDef()
@@ -400,10 +401,10 @@ async def index(_: web.Request) -> web.FileResponse:
 
 @routes.get(r"/static/{name:[A-Za-z0-9_-]+\.(?:js|css)}")
 async def static_file(request: web.Request) -> web.StreamResponse:
-    """The parts of the page (style sheet, scripts): flat file names only, so nothing outside the static folder can be asked for.
-    no-cache: the browser asks again, so an update is never shown with old scripts."""
-    path = STATIC_DIR / request.match_info["name"]
-    if not path.is_file():
+    """The parts of the page (style sheet, scripts): only the files that are in the static folder, looked up by name in a list made at
+    start - the name is never turned into a path. no-cache: the browser asks again, so an update is never shown with old scripts."""
+    path = STATIC_PARTS.get(request.match_info["name"])
+    if path is None:
         return error("Unknown file.", 404)
     return web.FileResponse(path, headers={"Cache-Control": "no-cache"})
 
@@ -683,8 +684,8 @@ async def export_prompts(request: web.Request) -> web.Response:
     images = {}
     for p in custom:
         for name in p.images:
-            path = IMAGES_DIR / name
-            if path.is_file():
+            path = upload_path(str(name))
+            if path is not None:
                 images[name] = base64.b64encode(path.read_bytes()).decode()
     body = {"format": PROMPTS_FORMAT, "version": 1, "exported": datetime.now().isoformat(timespec="seconds"),
             "promptset": PROMPTSET_VERSION, "program": __version__,
@@ -815,11 +816,10 @@ async def get_image(request: web.Request) -> web.Response:
     """Image of a prompt (built-in or from data/images), e.g. for the Responses tab."""
     name = request.match_info["name"]
     names = {n for p in all_prompts() for n in p.images}
-    path = image_path(name)
     # images of prompts, and uploads not yet saved with a prompt
-    if not (name in names or (IMAGES_DIR / name).is_file()) or not image_exists(name):
+    if not image_exists(name) or not (name in names or upload_path(name) is not None):
         return error("Unknown image.", 404)
-    return web.FileResponse(path)
+    return web.FileResponse(image_path(name))
 
 
 @routes.post("/api/images")

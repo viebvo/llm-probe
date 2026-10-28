@@ -191,7 +191,7 @@ async def model_capabilities(ep: Endpoint, model: str, timeout: float = 10.0) ->
 
 # what a model name says about its quantization / size (a hint, not a finding: used only if the server does not say)
 _QUANT_NAME = re.compile(r"(?i)(?<![a-z0-9])(nvfp4|mxfp4|fp8|fp4|int4|int8|awq|gptq|bnb|iq\d_[a-z]+|q\d(?:_k(?:_[sml])?|_[01])?|bf16|f16)(?![a-z0-9])")
-_SIZE_NAME = re.compile(r"(?i)(?<![a-z0-9.])(\d+(?:\.\d+)?)\s?b(?![a-z0-9])")
+_SIZE_NAME = re.compile(r"(?i)(?<![a-z0-9.])(\d{1,4}(?:\.\d{1,3})?)\s?b(?![a-z0-9])")
 
 
 _UNITS = {"": 1e-9, "K": 1e-6, "M": 1e-3, "B": 1.0, "T": 1e3}  # parameter counts in billions
@@ -212,6 +212,7 @@ def billions(size: str) -> str:
 
 def guess_details(model: str) -> dict:
     """Quantization and parameter size as far as the model name tells (source 'guessed')."""
+    model = model[:200]  # (a model name is short; the cut keeps the searches below cheap whatever a server sends)
     q, n = _QUANT_NAME.search(model), _SIZE_NAME.search(model)
     return {"quant": q.group(1).upper() if q else "", "size": f"{n.group(1)}B" if n else "",
             "quant_source": "guessed" if q else "", "size_source": "guessed" if n else ""}

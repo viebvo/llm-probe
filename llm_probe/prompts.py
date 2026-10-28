@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import json
 import math
+import os
 import random
 import re
 import secrets
@@ -121,9 +122,26 @@ class Prompt:
         return checks.evaluate(self.check, expected or self.expected, text, tool_calls, self.provenance, word)
 
 
+def _inside(base: Path, name: str) -> Path | None:
+    """`name` as a file directly in the folder `base`; None for a name with a path part or one that leaves the folder.
+    Every file name that comes from outside (a request, an imported file) goes through here before it is used."""
+    root = os.path.abspath(base)
+    full = os.path.normpath(os.path.join(root, name))
+    if not full.startswith(root + os.sep) or "/" in name or "\\" in name:
+        return None
+    return Path(full)
+
+
+def upload_path(name: str) -> Path | None:
+    """The uploaded image (data/images) of that name, None if there is none."""
+    path = _inside(IMAGES_DIR, name)
+    return path if path is not None and path.is_file() else None
+
+
 def image_path(name: str) -> Path:
-    custom = IMAGES_DIR / name
-    return custom if custom.exists() else IMAGES_ASSETS / name
+    """The file of an image name: an upload first, then the built-in test images. A name that is not a plain file name
+    gives a path that does not exist."""
+    return upload_path(name) or _inside(IMAGES_ASSETS, name) or IMAGES_ASSETS / "_no_such_image_"
 
 
 IMAGE_TYPES = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
@@ -131,7 +149,7 @@ MAX_IMAGE_BYTES = 20 * 1024 * 1024
 
 
 def image_exists(name: str) -> bool:
-    return Path(name).name == name and image_path(name).is_file()
+    return image_path(name).is_file()
 
 
 def save_image(name: str, data: bytes) -> str:
@@ -146,10 +164,14 @@ def save_image(name: str, data: bytes) -> str:
         raise ValueError("image larger than 20 MB")
     IMAGES_DIR.mkdir(parents=True, exist_ok=True)
     n, out = 1, f"{stem}{ext}"
-    while (IMAGES_DIR / out).exists() and (IMAGES_DIR / out).read_bytes() != data:
+    target = _inside(IMAGES_DIR, out)
+    while target is not None and target.exists() and target.read_bytes() != data:
         n += 1
         out = f"{stem}-{n}{ext}"
-    (IMAGES_DIR / out).write_bytes(data)
+        target = _inside(IMAGES_DIR, out)
+    if target is None:
+        raise ValueError("not a usable image name")
+    target.write_bytes(data)
     image_b64.cache_clear()
     return out
 

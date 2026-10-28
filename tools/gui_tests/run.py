@@ -460,6 +460,16 @@ def check_security(s: Suite) -> None:
     h = http.client.HTTPConnection(*[(s.base.split('//')[1].split(':')[0]), int(s.base.rsplit(':', 1)[1])])
     h.request("GET", parts[1]); r = h.getresponse(); r.read()
     s.ok("scripts come as JavaScript, uncached", "javascript" in (r.getheader("Content-Type") or "") and r.getheader("Cache-Control") == "no-cache", r.getheaders())
+    # image names: only plain file names inside the image folders, however they are written
+    from llm_probe.prompts import _inside, IMAGES_ASSETS
+    base = IMAGES_ASSETS
+    ok_names = [n for n in ("a.png", "lahn_full.jpg") if _inside(base, n) is not None]
+    bad_names = ["../x.png", "..", ".", "", "a/b.png", "a\\\\b.png", "/etc/passwd", "../../data/config.json", "sub/../../x"]
+    s.ok("image names: a plain name is taken, every name with a path or a way out is refused", len(ok_names) == 2 and all(_inside(base, n) is None for n in bad_names),
+         [n for n in bad_names if _inside(base, n) is not None])
+    for path in ("/api/images/..%2fconfig.json", "/api/images/%2e%2e%2fconfig.json", "/api/images/..%5cconfig.json", "/api/images/config.json"):
+        st, body = s.get(path)
+        s.ok(f"{path} is no image", st in (404, 400) and FAKE_KEY not in body, st)
     for path in ("/static/index.html", "/static/../server.py", "/static/%2e%2e/server.py", "/static/..%2fserver.py", "/static/nope.js", "/static/core.py", "/static/sub/core.js"):
         s.ok(f"{path} is not served", s.get(path)[0] in (404, 400), s.get(path)[0])
     # a damaged address in a run (imported from a file) must neither crash the masked export / report nor leak the host through it
