@@ -13,7 +13,7 @@ from rich.errors import MarkupError
 from rich.text import Text
 
 from . import __version__
-from .bench import BatchRunner, result_line
+from .bench import BatchRunner, clean_comment, result_line
 from .client import api_error_hint, list_models
 from .config import (DEFAULT_PORTS, clean_currency, MAX_BATCH_RUNS, THINKING_MODES, BenchSettings, Config, Endpoint, batch_plan, edit_config, load_config,
                      parse_values, split_values, valid_thinking)
@@ -82,6 +82,7 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--no-concurrency", action="store_true", help="skip the load phase")
     run.add_argument("--capabilities", action="store_true", help="(implied) the capability check always runs now")
     run.add_argument("--capabilities-only", action="store_true", help="run only the capability check, no prompts")
+    run.add_argument("--comment", help="your words for the run(s); stored as the start of the run's note (e.g. a build or commit id)")
     run.add_argument("--force", action="store_true", help="start even if another LLM Probe runs a test")
 
     sel = p.add_argument_group("prompt selection (--run, --list-prompts); comma separated, 'none' = prompts "
@@ -315,7 +316,7 @@ def run_batch(args: argparse.Namespace) -> int:
             print(f"Run #{d['run_id']} finished: {d['status']}", flush=True)
 
     try:
-        asyncio.run(BatchRunner(ep, models, prompts, settings, emit, caps).run())
+        asyncio.run(BatchRunner(ep, models, prompts, settings, emit, caps, comment=clean_comment(args.comment)).run())
     except KeyboardInterrupt:
         print("Interrupted.", file=sys.stderr)
         return EXIT_INTERRUPTED

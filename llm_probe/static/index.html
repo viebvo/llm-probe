@@ -161,6 +161,7 @@
         each other down.</p>
       <div class="fields">
         <label data-tip="t-ep">Endpoint<select id="t-ep"></select></label>
+        <label data-tip="t-comment">Comment for run <span class="dim">(starts the run's note)</span><input id="t-comment" maxlength="200" placeholder="e.g. after the driver update"></label>
       </div>
       <div class="mtop"><label data-tip="t-models"><b class="sect">Models</b> <span class="dim">(several = batch, tested one after another)</span>
         <span id="tm-count" class="dim"></span></label>
@@ -171,7 +172,7 @@
         <div class="fields">
           <label data-tip="t-temp">Temperature <span class="dim">(several = batch)</span><input id="t-temp" placeholder="e.g. 1.0 or 0.6, 1.0"></label>
           <div class="mf" data-tip="t-think">Thinking <span class="dim">(several = batch)</span><details class="tdd" id="t-think"><summary></summary><div class="tlist"></div></details></div>
-          <label data-tip="t-numctx" id="t-numctx-label">num_ctx values <span class="dim">(Ollama;<br>several = batch)</span><input id="t-numctx" placeholder="empty = the endpoint's setting"></label>
+          <label data-tip="t-numctx" id="t-numctx-label">Context size <span class="dim">(Ollama num_ctx;<br>several = batch)</span><input id="t-numctx" placeholder="empty = the endpoint's setting"></label>
           <label data-tip="t-maxtok">max_tokens <span class="dim">(several = batch;<br>NOT the context size!)</span><input id="t-maxtok" placeholder="e.g. 8192 or 2048, 8192"></label>
           <label data-tip="t-timeout">Timeout (s) <span class="dim">(several = batch)</span><input id="t-timeout" placeholder="e.g. 300 or 120, 300"></label>
         </div>

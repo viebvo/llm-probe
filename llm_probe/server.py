@@ -24,7 +24,7 @@ from rich.errors import MarkupError
 from rich.text import Text
 
 from . import __version__, placement, storage
-from .bench import BatchRunner, result_line
+from .bench import BatchRunner, clean_comment, result_line
 from .deviation import TASKS
 from . import overlap, sandbox
 from .capcheck import probe_reasoning
@@ -1163,7 +1163,7 @@ async def bench_start(request: web.Request) -> web.Response:
         cfg.model_params[ep.name] = params  # the Test tab shows them again next time
         if stored := cfg.endpoint(ep.name):
             stored.model, stored.models = models[0], models
-    runner = BatchRunner(ep, models, prompts, settings, state.emit, capabilities, per_model)
+    runner = BatchRunner(ep, models, prompts, settings, state.emit, capabilities, per_model, clean_comment(body.get("comment")))
     what = models[0] if len(models) == 1 else f"batch of {len(models)} models"
     sel = " · ".join(filter(None, [f"{len(prompts)} prompts" if prompts else "", "capabilities" if capabilities else ""]))
     state.start(runner, f"[b]Starting test[/] {ep.name} ({ep.kind}) · {Text(what).markup} · {sel}", lock)

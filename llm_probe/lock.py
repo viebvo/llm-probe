@@ -18,12 +18,15 @@ from typing import IO, Iterator
 from .config import DATA_DIR
 
 TEST_LOCK = DATA_DIR / "test.lock"  # held while a test or capability check runs; contains who runs it
+# Windows locks bytes for real: even reading a locked byte fails for every other handle. The lock therefore sits on a
+# byte far behind the text of the file, so the text (who runs the test) stays readable for the other instances.
+_LOCK_BYTE = 1 << 30
 
 
 def _try_lock(f: IO, blocking: bool = False) -> bool:
     if os.name == "nt":
         import msvcrt
-        f.seek(0)
+        f.seek(_LOCK_BYTE)
         try:
             msvcrt.locking(f.fileno(), msvcrt.LK_LOCK if blocking else msvcrt.LK_NBLCK, 1)
             return True
@@ -40,7 +43,7 @@ def _try_lock(f: IO, blocking: bool = False) -> bool:
 def _unlock(f: IO) -> None:
     if os.name == "nt":
         import msvcrt
-        f.seek(0)
+        f.seek(_LOCK_BYTE)
         try:
             msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)
         except OSError:
@@ -95,7 +98,7 @@ def holder() -> dict | None:
         f.seek(0)
         try:
             return json.loads(f.read() or "{}") or {"ui": "another process"}
-        except ValueError:
+        except (ValueError, OSError):  # OSError: a lock that cannot be read around (should not happen, see _LOCK_BYTE)
             return {"ui": "another process"}
 
 

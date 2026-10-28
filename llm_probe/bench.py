@@ -75,6 +75,14 @@ _ROOM_ERROR = re.compile(r"maximum context length is (\d+) tokens.{0,40}?has (\d
 _LIMIT_IN_ERROR = re.compile(r"(?:context length|max(?:imum)?[ _]model[ _]len|n_ctx|context window)\D{0,40}(\d{3,7})", re.I)
 
 
+MAX_COMMENT = 200
+
+
+def clean_comment(text) -> str:
+    """The user's comment for a run: one line, at most MAX_COMMENT characters."""
+    return " ".join(str(text or "").split())[:MAX_COMMENT]
+
+
 class SettingRejected(RuntimeError):
     """The endpoint refused a setting of the test (e.g. a thinking level): a batch run stops after this run."""
 
@@ -82,7 +90,8 @@ class SettingRejected(RuntimeError):
 class BenchmarkRunner:
     def __init__(self, ep: Endpoint, model: str, prompts: list[Prompt], settings: BenchSettings, emit: EventCallback,
                  capabilities: bool = False, note: str = ""):
-        self.note = note  # stored with the run, e.g. "batch 3/12 · max_tokens 8192 · thinking high"
+        self.note = note  # stored with the run, e.g. "my comment · batch 3/12 · max_tokens 8192 · thinking high"
+        self.step_note = note  # the batch part of it, without the user's comment
         self.stop_batch = ""  # set when a setting was rejected: the reason
         self.ctx_limit: int | None = None  # context per request, for servers that refuse prompt + max_tokens above it
         self.clamped: dict = {}
@@ -646,8 +655,10 @@ class BatchRunner:
     """
 
     def __init__(self, ep: Endpoint, models: list[str], prompts: list[Prompt], settings: BenchSettings,
-                 emit: EventCallback, capabilities: bool = False, per_model: dict[str, BenchSettings] | None = None):
-        """per_model: settings of the models that differ from `settings` (Test tab: a model's own parameters)."""
+                 emit: EventCallback, capabilities: bool = False, per_model: dict[str, BenchSettings] | None = None,
+                 comment: str = ""):
+        """per_model: settings of the models that differ from `settings` (Test tab: a model's own parameters).
+        comment: the user's words for the run(s); it opens the note of every run, before the batch numbering."""
         self.ep = ep
         self.models = models
         self.emit = emit
@@ -658,7 +669,10 @@ class BatchRunner:
         for m in models:
             for step in plans[m]:
                 note = self._note(step["note"], len(self.runners) + 1, total) if len(plans[m]) > 1 else ""
-                self.runners.append(BenchmarkRunner(step["endpoint"], m, prompts, step["settings"], self._emit, capabilities, note=note))
+                runner = BenchmarkRunner(step["endpoint"], m, prompts, step["settings"], self._emit, capabilities,
+                                         note=" · ".join(filter(None, [comment, note])))
+                runner.step_note = note
+                self.runners.append(runner)
         self.total_steps = sum(r.total_steps for r in self.runners)
 
     @staticmethod
@@ -680,7 +694,7 @@ class BatchRunner:
         for i, runner in enumerate(self.runners):
             if batch:
                 self.emit("log", msg=f"[b]===== Run {i + 1}/{len(self.runners)}: {runner.model}"
-                                     f"{' · ' + runner.note.split(' · ', 1)[1] if ' · ' in runner.note else ''} =====[/]")
+                                     f"{' · ' + runner.step_note.split(' · ', 1)[1] if ' · ' in runner.step_note else ''} =====[/]")
             run_ids.append(await runner.run())  # a failing model is stored as failed; the batch goes on
             self.offset += runner.total_steps
             self.emit("progress", done=self.offset, total=self.total_steps)

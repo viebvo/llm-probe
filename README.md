@@ -172,7 +172,7 @@ The database runs in SQLite's WAL mode. So reading (lists, comparisons) and writ
 
 * **Six models**, each with the English prompt set (easy and hard, text, vision, tools, refusal tests, the long sessions and the context sweep), the load test (1, 2, 4, 8 concurrent requests) and a capability check.
 * **Five ran on Ollama** (qwen2.5:7b, qwen3-vl:8b, gpt-oss:20b, deepseek-r1:14b, smollm:135m) and **one on vLLM** (Qwen2.5-VL-7B-Instruct-AWQ). All ran on the same two RTX 2080 Ti with 11 GB each. The servers took turns on those GPUs.
-* They were made with LLM Probe 0.17.2 and prompt set 0.12.0. The scanned-receipt question was measured separately for the two runs that can read images (same model and settings) and added to them.
+* They were made with LLM Probe 0.17.2 and prompt set 0.12.1 (the wording of 0.12.0, one prompt moved from easy to hard). The scanned-receipt question was measured separately for the two runs that can read images (same model and settings) and added to them.
 * The server names are replaced (`my-server`, `my-vllm`).
 * **Mind the runtimes.** The 4-hour run is qwen3-vl:8b with its long reasoning. It is one more reason to read the estimated run time before starting a batch.
 
@@ -216,6 +216,10 @@ SSH access to the server is optional. With SSH, the tool watches GPU, CPU and RA
 > **TL;DR** Select the endpoint, tick the models, choose the prompts, press *Start test*.
 
 A test started in the web UI keeps running on the server when you close the browser. Only one test can run per server at a time.
+
+**Name your runs**
+
+The field **Comment for run**, next to the endpoint, is for your own words, for example "after the driver update". It opens the *note* of every run the test creates; a batch adds its numbering behind it (`after the driver update · batch 2/4 · thinking low`). Under Results, the note field of the selected run shows it, and you can edit it there at any time. On the command line it is `--comment`.
 
 **Two groups of prompts**
 
@@ -585,6 +589,7 @@ LLM_PROBE_API_KEY=... ./run.sh --configure cloud --url https://api.example.com -
 * With several models, a batch runs one after another. Each model is stored as its own run.
 * Without a model, the last selection of the endpoint is used.
 * The settings are those last used in the web UI, unless you give them. These options override them for this run only. They are not saved: `--temperature`, `--max-tokens`, `--thinking`, `--reps`, `--timeout`, `--concurrency 1,2,4,8`, `--requests-per-level`, `--no-single`, `--no-concurrency`, `--capabilities`, `--capabilities-only`.
+* **`--comment TEXT`** is your own word for the run(s), for example a build or commit id. It opens the note of every run it creates (a batch adds its numbering behind it), like the *Comment for run* field of the Test page.
 * The prompts are chosen by rules, the same ones as the default and the presets of the web UI. Use the facets `--lang`, `--difficulty`, `--group` and `--kind` (comma separated). The defaults are those of a new test in the web UI, and `none` means prompts without a language. Or give exactly the ids with `--prompts`.
 * The progress is printed as plain text.
 * One test runs at a time (see above). While another process runs one, the command stops and says who. `--force` starts anyway.
@@ -596,6 +601,39 @@ LLM_PROBE_API_KEY=... ./run.sh --configure cloud --url https://api.example.com -
 * It creates the endpoint (with `--url`; the type is guessed from the port unless you give `--type`). Or it changes the given fields of an existing endpoint. `--delete` removes it.
 * **Passwords and API keys are never arguments.** They would show up in the process list and in the shell history. `--set-api-key` and `--set-ssh-password` read the environment variables `LLM_PROBE_API_KEY` and `LLM_PROBE_SSH_PASSWORD`, or ask on the terminal.
 * They are stored only in `config.json` (mode 600) and are never printed.
+
+### Use it in an automated (eval) workflow
+
+> **TL;DR** Run `--run` from a script or CI job, label the run with `--comment`, gate on the exit code and, if you like, on the check score.
+
+A short example: a nightly job tests a model after every deployment and fails if the answers got worse. The exit code says whether the runs finished. The score is read from the stored run.
+
+```bash
+#!/usr/bin/env bash
+# nightly-eval.sh - needs a configured endpoint ("gpu-box"); results.db is the same file the web UI shows
+set -euo pipefail
+cd /opt/llm-probe
+
+# the same prompts every night (--prompts could pin exact ids); --comment opens the run's note
+out=$(./run.sh --run gpu-box qwen3:8b --difficulty easy,hard --lang en --no-concurrency \
+        --comment "deploy $(git -C /srv/app rev-parse --short HEAD)") || {
+  code=$?; echo "$out"; echo "LLM Probe exit code $code (1 = run failed, 3 = another test is running)"; exit "$code"; }
+echo "$out"
+
+# the id of the run just stored, and its check score (0..1)
+run_id=$(echo "$out" | sed -n 's/^Run #\([0-9]*\) finished.*/\1/p' | tail -1)
+score=$(PYTHONPATH=. .venv/bin/python -c "
+from llm_probe import storage
+db = storage.connect()
+print(storage.run_summary(db, $run_id)[4] or 0)")
+echo "run #$run_id check score $score"
+python3 -c "import sys; sys.exit(0 if $score >= 0.85 else 1)" || { echo "score below 0.85"; exit 1; }
+```
+
+* The run is a normal run: it shows up in Results with your comment at the start of its note, and Compare can put it next to earlier nights.
+* Exit codes: 0 = every run finished, 1 = a run failed or was aborted, 2 = wrong usage, 3 = another test is running (a second night job would wait for the first), 130 = interrupted.
+* `storage.run_summary` is internal and may change between versions: it returns `(tokens/s, time to first token, time to first answer token, peak, check score)`. Pin the version you tested, or read the score from the web UI's JSON (`/api/runs`, key `check_score`) when a server is running.
+* Compare like with like: the same prompts (the prompt set version is stored with every run) and the same settings. See [Notes for fair comparisons](#notes-for-fair-comparisons).
 
 ## What the tests are meant to show
 
@@ -1117,7 +1155,7 @@ Select several models on the Test page, or give several to `--run`. On Ollama a 
 
 * The fields **max_tokens**, **temperature** and **timeout** accept comma separated values, for example `2048, 8192`. (`max_tokens` is what the model may generate per request. It is not the context size.)
 * **thinking** is a compact drop-down with check boxes.
-* For Ollama endpoints, **num_ctx values** (the context to load the model with) take several values too.
+* For Ollama endpoints, the **context size** (`num_ctx`: the context to load the model with) takes several values too.
 * The batch is the product: models x max_tokens x temperature x timeout x thinking x num_ctx. It is shown on the start button, for example "Start batch (12 runs)". Above 12 runs, a confirmation appears. At most 100 runs are allowed.
 * The order is per model: per num_ctx first (the model reloads once per value), then thinking, max_tokens, temperature, timeout.
 * Every run is a normal run with scalar settings. The Results columns "Max tok.", "Temp." and "Effort" tell them apart. A note such as `batch 3/12 · max_tokens 8192 · thinking high` names the settings that vary, and only those.

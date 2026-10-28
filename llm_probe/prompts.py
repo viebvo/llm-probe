@@ -456,7 +456,7 @@ def _hard_prompts() -> list["Prompt"]:
          "Joseph the first|Josef the first",
          "Silberhochzeit|silver wedding|wedding anniversary|Hochzeitsjubiläum|25th anniversary|25 years of marriage"
          "|Seestraße|Seestrasse|Seelände|Seelaende|Kaiser-Franz-Josef-Straße|Kaiser-Franz-Josef-Strasse|lake road"],
-        "easy", image="lahn_full.jpg", provenance=[3, 4], readable={3: "Franz Josef|Franz Joseph"}, reliability=True)  # Q3 leak = imperial title / regnal number; Q4 = the event
+        "hard", image="lahn_full.jpg", provenance=[3, 4], readable={3: "Franz Josef|Franz Joseph"}, reliability=True)  # Q3 leak = imperial title / regnal number; Q4 = the event
     # the real receipt photo (receipt_photo.jpg: tilted, partly stained; date, time, receipt number and the
     # machine-readable codes are blacked out). Two probes:
     # - reading depth: transcribe from the top down to the words "Maschinenlesbarer Code" and stop; the score is the
@@ -1206,7 +1206,7 @@ def _fact_safety_prompts() -> list[Prompt]:
 # Version of the built-in prompt set: what the models are asked, word for word. Stamped into every run (a stored
 # response records the prompt id, not the text that was sent) and shown in the results list. Kept equal to the
 # program version (bump together) unless there is a good reason to let them diverge.
-PROMPTSET_VERSION = "0.12.0"
+PROMPTSET_VERSION = "0.12.1"
 
 # Escape route (since prompt set 0.5.0): hard checked prompts end with a sentence that lets the model write
 # "unsolvable" when it cannot answer, so a model that knows its limit can be told from one that is confidently wrong.
@@ -1336,9 +1336,13 @@ def selection_facets(prompts: list[Prompt]) -> dict[str, list[tuple[str, str]]]:
             "kind": [(k, k) for k in KINDS]}
 
 
+_BUILTIN_MARKED: list[Prompt] = []  # BUILTIN_PROMPTS with builtin=True, built on first use (the list is called hundreds of times)
+
+
 def all_prompts() -> list[Prompt]:
-    builtin = [Prompt(**{**asdict(p), "builtin": True}) for p in BUILTIN_PROMPTS]
-    return builtin + load_custom_prompts()
+    if not _BUILTIN_MARKED:
+        _BUILTIN_MARKED.extend(Prompt(**{**asdict(p), "builtin": True}) for p in BUILTIN_PROMPTS)
+    return _BUILTIN_MARKED + load_custom_prompts()
 
 
 @contextmanager

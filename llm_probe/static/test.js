@@ -88,7 +88,7 @@ function refreshNumCtx() {
   lab.hidden = !(ollama || known);
   $("t-models").classList.toggle("no-numctx", !(ollama || known));
   inp.disabled = !ollama;
-  lab.querySelector(".dim").innerHTML = ollama ? "(Ollama;<br>several = batch)" : "(read from the server)";  // (fixed texts, no data)
+  lab.querySelector(".dim").innerHTML = ollama ? "(Ollama num_ctx;<br>several = batch)" : "(read from the server)";  // (fixed texts, no data)
   if (ollama) {
     if (inp.dataset.mode === "server") inp.value = state.numctxUser ?? "";  // back from a value read from the server; never while typing
     inp.dataset.mode = "ollama"; inp.placeholder = "empty = the endpoint's setting"; inp.title = "";
@@ -427,7 +427,7 @@ $("t-start").addEventListener("click", async () => {
   const chosen = promptBoxes().filter((i) => i.checked).map((i) => promptById(i.value));
   if (chosen.some((p) => p.kind === "safety") && !(await confirmSafety())) return;  // e.g. another endpoint now
   const body = {
-    endpoint: $("t-ep").value, models: checkedModels(), capabilities: capSelected(),
+    endpoint: $("t-ep").value, comment: $("t-comment").value, models: checkedModels(), capabilities: capSelected(),
     prompts: promptBoxes().filter((i) => i.checked).map((i) => i.value),
     settings: {
       max_tokens: $("t-maxtok").value, temperature: $("t-temp").value, num_ctx: isOllama() ? $("t-numctx").value : (state.numctxUser || ""), repetitions: $("t-reps").value,

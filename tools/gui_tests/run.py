@@ -354,7 +354,7 @@ def check_test_tab(s: Suite) -> None:
     pg.close()
 
 
-def run_test(s: Suite, pg, prompts: list[str], thinking: list[str], timeout_s: int = 420) -> dict:
+def run_test(s: Suite, pg, prompts: list[str], thinking: list[str], timeout_s: int = 420, comment: str = "") -> dict:
     """Start a test on the mock streaming model from the Test tab (capability check included) and wait for the end."""
     pg.evaluate("showTab('test')"); pg.select_option("#t-ep", "mock-stream"); pg.wait_for_timeout(3000)
     pg.locator("#t-models input.mchk").first.check()
@@ -365,6 +365,7 @@ def run_test(s: Suite, pg, prompts: list[str], thinking: list[str], timeout_s: i
     pg.uncheck("#t-load")
     pg.evaluate("ids => promptBoxes().forEach(i => { i.checked = ids.includes(i.value); i.dispatchEvent(new Event('change', {bubbles: true})); })", prompts)
     pg.wait_for_timeout(400)
+    pg.fill("#t-comment", comment)
     pg.click("#t-start")
     return {"label_before": pg.inner_text("#t-start")}
 
@@ -382,11 +383,15 @@ def check_batch_thinking(s: Suite) -> None:
     pg = s.page()
     before = len(json.loads(s.get("/api/runs")[1]))
     t0 = time.time()
-    run_test(s, pg, ["short_en"], ["off", "low"])
+    run_test(s, pg, ["short_en"], ["off", "low"], comment="  after the   driver update ")
     wait_done(pg, t0)
     runs = json.loads(s.get("/api/runs")[1])
     new = sorted((r for r in runs if r["endpoint"] == "mock-stream"), key=lambda r: r["id"])
     s.ok("two modes ticked -> two new runs", len(runs) - before == 2, len(runs) - before)
+    s.ok("the comment opens the note of every run, the batch numbering follows", [r["note"] for r in new][:2] == [
+        "after the driver update · batch 1/2 · thinking off", "after the driver update · batch 2/2 · thinking low"], [r["note"] for r in new])
+    pg.evaluate("showTab('runs')"); pg.wait_for_timeout(800); pg.evaluate(f"selectRun({new[0]['id']})"); pg.wait_for_timeout(1200)
+    s.ok("Results shows it in the note field of the selected run", pg.input_value("#r-note") == new[0]["note"], pg.input_value("#r-note"))
     s.ok("each run has its own mode and says what came of it", [r["settings"]["thinking"] for r in new] == ["off", "low"] and all(" -> " in r["thinking"] for r in new),
          [(r["settings"]["thinking"], r["thinking"]) for r in new])
     s.ok("no page errors", not pg.errors, pg.errors[:2])
@@ -524,6 +529,35 @@ def check_interrupted(s: Suite) -> None:
     db = sqlite3.connect(s.home / "results.db"); db.execute("DELETE FROM runs WHERE id = ?", (rid,)); db.commit(); db.close()
 
 
+def check_edit_distance(s: Suite) -> None:
+    """The bit-parallel edit distance of the OCR check gives exactly the numbers of the textbook table (pure function, no files)."""
+    import random
+    from llm_probe.check import _levenshtein
+
+    def table(a: str, b: str) -> int:
+        prev = list(range(len(b) + 1))
+        for i, ca in enumerate(a, 1):
+            cur = [i]
+            for j, cb in enumerate(b, 1):
+                cur.append(min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (ca != cb)))
+            prev = cur
+        return prev[-1]
+
+    rnd = random.Random(7)
+    bad = []
+    for _ in range(3000):
+        alphabet = rnd.choice(["ab", "abc", "abcdefghij äöü-.\n"])
+        a = "".join(rnd.choices(alphabet, k=rnd.randint(0, 40)))
+        b = "".join(rnd.choices(alphabet, k=rnd.randint(0, 40)))
+        if _levenshtein(a, b) != table(a, b):
+            bad.append((a, b))
+    s.ok("3000 random pairs equal the textbook table", not bad, bad[:2])
+    s.ok("empty and identical texts", _levenshtein("", "abc") == 3 and _levenshtein("abc", "") == 3 and _levenshtein("abc", "abc") == 0)
+    import time
+    t = time.time(); _levenshtein("ab c" * 2500, "ba d" * 2300)
+    s.ok("10,000 x 9,200 characters take well under a second", time.time() - t < 1.0, time.time() - t)
+
+
 def check_live_replay(s: Suite) -> None:
     """A live output stream opened (again) during a phase without output must not bring back the last request."""
     from llm_probe.server import BenchState
@@ -577,7 +611,7 @@ def check_open_browser(s: Suite) -> None:
 
 CHECKS = [("tour", check_tour), ("home", check_home), ("results", check_results), ("compare", check_compare), ("responses", check_responses),
           ("prompts", check_prompts), ("refusal", check_refusal), ("settings", check_settings), ("test_tab", check_test_tab), ("security", check_security),
-          ("numbers", check_numbers), ("batch_thinking", check_batch_thinking), ("live_output", check_live_output), ("interrupted", check_interrupted), ("live_replay", check_live_replay), ("restart_notice", check_restart_notice), ("open_browser", check_open_browser)]
+          ("numbers", check_numbers), ("batch_thinking", check_batch_thinking), ("live_output", check_live_output), ("interrupted", check_interrupted), ("edit_distance", check_edit_distance), ("live_replay", check_live_replay), ("restart_notice", check_restart_notice), ("open_browser", check_open_browser)]
 UPDATE_BASELINE = False
 
 

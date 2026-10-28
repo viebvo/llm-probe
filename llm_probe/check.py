@@ -231,15 +231,33 @@ def check(response: str, expected: str, words: bool = False, provenance: frozens
 # ---------------------------------------------------------------- ocr
 
 def _levenshtein(a: str, b: str) -> int:
+    """Edit distance, exact. Bit-parallel (Myers/Hyyro): the columns of the classic table are the bits of a Python
+    integer, so a long transcription costs one pass over the longer text instead of length * length steps."""
     if len(a) < len(b):
         a, b = b, a
-    prev = list(range(len(b) + 1))
-    for i, ca in enumerate(a, 1):
-        cur = [i]
-        for j, cb in enumerate(b, 1):
-            cur.append(min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (ca != cb)))
-        prev = cur
-    return prev[-1]
+    m = len(b)
+    if m == 0:
+        return len(a)
+    peq: dict[str, int] = {}
+    for i, c in enumerate(b):
+        peq[c] = peq.get(c, 0) | (1 << i)
+    mask, high = (1 << m) - 1, 1 << (m - 1)
+    pv, mv, score = mask, 0, m
+    for c in a:
+        eq = peq.get(c, 0)
+        xv = eq | mv
+        xh = (((eq & pv) + pv) ^ pv) | eq
+        ph = (mv | ~(xh | pv)) & mask
+        mh = pv & xh
+        if ph & high:
+            score += 1
+        elif mh & high:
+            score -= 1
+        ph = ((ph << 1) | 1) & mask
+        mh = (mh << 1) & mask
+        pv = (mh | ~(xv | ph)) & mask
+        mv = ph & xv
+    return score
 
 
 def _ocr_lines(text: str) -> list[str]:
