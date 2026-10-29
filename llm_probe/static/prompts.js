@@ -13,19 +13,27 @@ async function loadPrompts() {
   $("foot-ver").textContent = state.selection.version ? "v" + state.selection.version : "";
   if (state.selection.promptset) $("pr-promptset").innerHTML = `Built-in prompt set <b>v${esc(state.selection.promptset)}</b> (program v${esc(state.selection.version || "?")}). Built-in prompts are read-only; your own prompts are listed with category "custom".`;
   renderPromptTable();
+  promptsFilter.render();
   renderPromptChecklist();
   renderPromptImages();
 }
 // the ticked custom prompts (the export takes these); built-in prompts have a greyed-out box
 const promptMarkBoxes = () => [...$("pr-table").querySelectorAll("td.mark input")];
+const shownMarkBoxes = () => promptMarkBoxes().filter((i) => !i.closest("tr").hidden);  // the header check box acts on what the filter shows
+// the same filter as in the Test tab (own state): it hides rows, the marks stay
+const promptsFilter = makePromptFilter({
+  box: $("pr-facets"),
+  rows: () => [...$("pr-table").querySelectorAll("tbody tr[data-id]")].map((tr) => [tr, state.prompts.find((p) => p.id === tr.dataset.id)]),
+  onApply: () => syncHeadCheck($("pr-head"), shownMarkBoxes),
+});
 function syncPromptMarks() {
   state.promptMarked = new Set(promptMarkBoxes().filter((i) => i.checked && !i.disabled).map((i) => i.value));
-  syncHeadCheck($("pr-head"), promptMarkBoxes);
+  syncHeadCheck($("pr-head"), shownMarkBoxes);
   const n = state.promptMarked.size;
   $("pr-export").disabled = !n;
   $("pr-export").textContent = n ? `Export marked custom prompts (${n})` : "Export marked custom prompts";
 }
-bindHeadCheck($("pr-head"), promptMarkBoxes, syncPromptMarks);
+bindHeadCheck($("pr-head"), shownMarkBoxes, syncPromptMarks);
 $("pr-table").addEventListener("change", (ev) => { if (ev.target.matches("td.mark input")) syncPromptMarks(); });
 function renderPromptTable() {
   const tb = $("pr-table").querySelector("tbody");
@@ -39,6 +47,7 @@ function renderPromptTable() {
     `<td class="l">${esc(p.group)}</td><td class="l">${esc(p.lang || "-")}</td><td class="l">${esc(p.difficulty || "easy")}</td>` +
     `<td class="l">${esc(p.category)}${p.builtin ? ' <span class="dim">(built-in)</span>' : ""}${isCodeBased(p) ? ' <span class="dim" title="Code-based prompt (a long coding session): it is generated in code and cannot be edited or recreated in this form.">(code)</span>' : ""}${p.adaptive ? ' <span class="dim" title="Generated when a run starts, sized to the context the model is served with; it cannot be edited or copied.">(generated)</span>' : ""}</td>` +
     `<td class="l">${esc(p.needs.join(", ") || "-")}</td><td>${p.text.length}</td></tr>`).join("");
+  promptsFilter.apply();
   syncPromptMarks();
   tb.querySelectorAll("tr[data-id]").forEach((tr) => tr.addEventListener("click", (ev) => {
     if (ev.target.closest("td.mark")) return;  // the check box marks the prompt for export; it does not open it

@@ -208,7 +208,8 @@ label[data-tip=t-prompts] { display: block; margin-bottom: 8px; }
 .sect { font-size: 16px; font-weight: 700; color: var(--text); }
 .pfilters { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: flex-start; margin: 4px 0 8px; font-size: 13px; }
 .pfilters .tdd { position: relative; min-width: 120px; }
-.pfilters .tdd .tlist { position: absolute; z-index: 5; min-width: 100%; grid-template-columns: 1fr; white-space: nowrap; box-shadow: 0 4px 12px rgba(0,0,0,.25); }
+.pfilters .tdd.down .tlist { bottom: auto; margin: 3px 0 0; }  /* no room above: opens downwards */
+.pfilters .tdd .tlist { position: absolute; bottom: 100%; margin: 0 0 3px; overflow-y: auto; overflow-x: hidden; z-index: 5; min-width: 100%; width: max-content; padding: 6px 14px 6px 10px; grid-template-columns: 1fr; white-space: nowrap; box-shadow: 0 4px 12px rgba(0,0,0,.25); }
 .pfilters input[type=search] { min-height: 31px; box-sizing: border-box; width: 200px; }
 .ptable { width: 100%; border-collapse: collapse; font-size: 13px; table-layout: fixed; }
 .ptable td:not(.pn) { overflow: hidden; text-overflow: ellipsis; }

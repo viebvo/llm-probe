@@ -232,34 +232,66 @@ function filterValues(f) {
 // column sort of the table: ascending -> descending -> the original order (grouped); the ticks stay with their prompts
 state.ptSort = null;
 const PSORT = { name: (p) => p.name, group: (p) => p.group, lang: (p) => p.lang || "", difficulty: (p) => p.difficulty || "easy", category: (p) => p.category };
-const filterBoxes = (f) => [...$("t-facets").querySelectorAll(`input[data-pf=${f}]`)];
-function filterSummary(f, title) {
-  const all = filterBoxes(f), on = all.filter((b) => b.checked);
-  return `${title}: ` + (on.length === all.length ? "all" : on.length ? on.map((b) => b.dataset.label).join(" + ") : "none");
-}
-function renderFilters() {
-  const off = new Set(filterBoxes("group").concat(filterBoxes("lang"), filterBoxes("difficulty"), filterBoxes("category")).filter((b) => !b.checked).map((b) => `${b.dataset.pf}:${b.value}`));
-  const was = $("t-psearch") ? $("t-psearch").value : "";
-  $("t-facets").innerHTML = PFILTERS.map(([f, title]) =>
-    `<details class="tdd" data-pfd="${f}"><summary></summary><div class="tlist"><div class="presets"><a href="#" data-pfset="all" data-f="${f}">all</a> / <a href="#" data-pfset="none" data-f="${f}">none</a></div>` +
-    filterValues(f).map(([v, label, n]) => `<label><input type="checkbox" data-pf="${f}" data-label="${esc(label)}" value="${esc(v)}"${off.has(`${f}:${v}`) ? "" : " checked"}>` +
-      `${esc(label)} <span class="dim">${n}</span></label>`).join("") + "</div></details>").join("") +
-    `<input type="search" id="t-psearch" placeholder="search name ..." value="${esc(was)}">`;
-  applyFilters();
-}
-// hide the rows the filters do not take; the header check box and the counts follow what is shown
-function applyFilters() {
-  const on = Object.fromEntries(PFILTERS.map(([f]) => [f, new Set(filterBoxes(f).filter((b) => b.checked).map((b) => b.value))]));
-  const q = ($("t-psearch") ? $("t-psearch").value : "").trim().toLowerCase();
-  promptBoxes().forEach((i) => {
-    const p = promptById(i.value);
-    i.closest("tr").hidden = !(PFILTERS.every(([f, , get]) => on[f].has(get(p))) &&
-      (!q || p.name.toLowerCase().includes(q) || p.id.toLowerCase().includes(q)));
+// A prompt filter: dropdowns (Group, Language, Level, Category) and a search box that only HIDE the rows of a table; the ticks
+// stay. Used in the Test tab and under Settings > Prompts, each with its own state. rows() = [[tr, prompt], ...].
+function makePromptFilter({ box, searchId, rows, onApply }) {
+  const boxes = (f) => [...box.querySelectorAll(`input[data-pf=${f}]`)];
+  const searchBox = () => box.querySelector("input[type=search]");
+  const summary = (f, title) => {
+    const all = boxes(f), on = all.filter((b) => b.checked);
+    return `${title}: ` + (on.length === all.length ? "all" : on.length ? on.map((b) => b.dataset.label).join(" + ") : "none");
+  };
+  function apply() {
+    const on = Object.fromEntries(PFILTERS.map(([f]) => [f, new Set(boxes(f).filter((b) => b.checked).map((b) => b.value))]));
+    const q = (searchBox() ? searchBox().value : "").trim().toLowerCase();
+    rows().forEach(([tr, p]) => {
+      tr.hidden = !(PFILTERS.every(([f, , get]) => on[f].has(get(p))) && (!q || p.name.toLowerCase().includes(q) || p.id.toLowerCase().includes(q)));
+    });
+    PFILTERS.forEach(([f, title]) => { const d = box.querySelector(`[data-pfd=${f}] summary`); if (d) d.textContent = summary(f, title); });
+    onApply();
+  }
+  function render() {
+    const off = new Set(PFILTERS.flatMap(([f]) => boxes(f)).filter((b) => !b.checked).map((b) => `${b.dataset.pf}:${b.value}`));
+    const was = searchBox() ? searchBox().value : "";
+    box.innerHTML = PFILTERS.map(([f, title]) =>
+      `<details class="tdd" data-pfd="${f}"><summary></summary><div class="tlist"><div class="presets"><a href="#" data-pfset="all" data-f="${f}">all</a> / <a href="#" data-pfset="none" data-f="${f}">none</a></div>` +
+      filterValues(f).map(([v, label, n]) => `<label><input type="checkbox" data-pf="${f}" data-label="${esc(label)}" value="${esc(v)}"${off.has(`${f}:${v}`) ? "" : " checked"}>` +
+        `${esc(label)} <span class="dim">${n}</span></label>`).join("") + "</div></details>").join("") +
+    `<input type="search"${searchId ? ` id="${searchId}"` : ""} placeholder="search name ..." value="${esc(was)}">`;
+    apply();
+  }
+  function reset() {
+    box.querySelectorAll("input[data-pf]").forEach((b) => { b.checked = true; });
+    if (searchBox()) searchBox().value = "";
+    apply();
+  }
+  box.addEventListener("change", apply);
+  box.addEventListener("click", (ev) => {
+    const a = ev.target.closest("a[data-pfset]");
+    if (!a) return;
+    ev.preventDefault();
+    boxes(a.dataset.f).forEach((b) => { b.checked = a.dataset.pfset === "all"; });
+    apply();
   });
-  PFILTERS.forEach(([f, title]) => { const d = $("t-facets").querySelector(`[data-pfd=${f}] summary`); if (d) d.textContent = filterSummary(f, title); });
-  if ($("tp-head")) syncHeadCheck($("tp-head"), shownBoxes);
-  updatePromptCounts();
+  box.addEventListener("input", (ev) => { if (ev.target.type === "search") apply(); });
+  // a list opens upwards (the page does not jump away from what is being read); without room above it opens downwards
+  box.addEventListener("toggle", (ev) => {
+    const d = ev.target, list = d.querySelector(".tlist");
+    if (!d.open || !list) return;
+    d.classList.remove("down");
+    const above = d.getBoundingClientRect().top - 8, below = innerHeight - d.getBoundingClientRect().bottom - 8;
+    if (list.offsetHeight > above && below > above) d.classList.add("down");
+    list.style.maxHeight = Math.max(120, Math.min(list.scrollHeight + 6, d.classList.contains("down") ? below : above)) + "px";
+  }, true);
+  return { render, apply, reset };
 }
+const testFilter = makePromptFilter({
+  box: $("t-facets"), searchId: "t-psearch",
+  rows: () => promptBoxes().map((i) => [i.closest("tr"), promptById(i.value)]),
+  onApply: () => { if ($("tp-head")) syncHeadCheck($("tp-head"), shownBoxes); updatePromptCounts(); },
+});
+const renderFilters = () => testFilter.render();
+const applyFilters = () => testFilter.apply();
 // one line under the filter: what the filter shows and what is ticked (the ticks count even when a row is hidden)
 function updatePromptCounts() {
   const all = state.prompts.length, ticked = promptBoxes().filter((i) => i.checked).length;
@@ -278,9 +310,7 @@ async function tickByRule(sel) {
     kinds[kind] = !state.prompts.some((p) => p.kind === kind && selects(p, sel)) || await ask();
   }
   promptBoxes().forEach((i) => { const p = promptById(i.value); i.checked = selects(p, sel) && kinds[p.kind] !== false; });
-  $("t-facets").querySelectorAll("input[data-pf]").forEach((b) => { b.checked = true; });
-  $("t-psearch").value = "";
-  applyFilters();
+  testFilter.reset();
   updateSelCount();
 }
 function renderPromptChecklist() {
@@ -359,15 +389,6 @@ $("t-prompts").addEventListener("change", async (ev) => {
 });
 $("t-prompts").addEventListener("change", (ev) => { if (ev.target.dataset.caps !== undefined) updateSelCount(); });
 function setCaps(on) { if ($("t-caps-sel")) $("t-caps-sel").checked = on; updateSelCount(); }
-$("t-facets").addEventListener("change", applyFilters);
-$("t-facets").addEventListener("click", (ev) => {
-  const a = ev.target.closest("a[data-pfset]");
-  if (!a) return;
-  ev.preventDefault();
-  filterBoxes(a.dataset.f).forEach((b) => { b.checked = a.dataset.pfset === "all"; });
-  applyFilters();
-});
-$("t-facets").addEventListener("input", (ev) => { if (ev.target.id === "t-psearch") applyFilters(); });
 $("t-prompts").addEventListener("click", (ev) => {
   const h = ev.target.closest("th[data-psort]");
   if (h) { state.ptSort = nextSort(state.ptSort, h.dataset.psort); renderPromptChecklist(); }
@@ -379,7 +400,7 @@ $("t-prompts").addEventListener("click", (ev) => {
 });
 // an open filter list closes on a click elsewhere
 document.addEventListener("click", (ev) => {
-  document.querySelectorAll("#t-facets details[open]").forEach((d) => { if (!d.contains(ev.target)) d.open = false; });
+  document.querySelectorAll(".pfilters details[open]").forEach((d) => { if (!d.contains(ev.target)) d.open = false; });
 });
 const allFacets = () => Object.fromEntries(Object.keys(FACET_TITLES).map((f) => [f, state.selection.facets[f].map(([v]) => v)]));
 $("t-all").addEventListener("click", (ev) => { ev.preventDefault(); tickByRule(allFacets()); setCaps(true); });

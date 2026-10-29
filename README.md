@@ -516,6 +516,7 @@ It looks the same in a run and in a comparison. The comparison just has the bars
 * Built-in prompts are read-only (greyed out). **Copy to new prompt** turns one into an editable custom prompt with a new ID. This does not work for the code-based coding sessions.
 * A prompt can have an expected answer with a compare mode (see "Answer check") and **images**. "Add image ..." uploads files from your computer (PNG, JPEG, WebP, GIF) to `data/images/`. Prompts with images need a vision model. Models without one skip them.
 * The top line shows the version of the built-in prompt set.
+* The **Prompt filter** above the table is the same as in the Test tab (group, language, level, category, search). It only hides rows: your marks stay, and the header check box acts on the rows you see. Its lists open upwards, or downwards where there is no room above.
 
 **Export and import**
 

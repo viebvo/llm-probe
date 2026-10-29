@@ -558,6 +558,47 @@ def check_edit_distance(s: Suite) -> None:
     s.ok("10,000 x 9,200 characters take well under a second", time.time() - t < 1.0, time.time() - t)
 
 
+def check_prompt_filter(s: Suite) -> None:
+    """The prompt filter: lists open upwards (downwards where there is no room), and the same filter sits under Settings > Prompts."""
+    pg = s.page()
+    pg.evaluate("showTab('test')"); pg.select_option("#t-ep", "mock-ollama"); pg.wait_for_timeout(2500)
+    pg.evaluate("document.querySelector('#t-facets').scrollIntoView({block: 'center'})")
+    pg.click("#t-facets [data-pfd=category] summary"); pg.wait_for_timeout(300)
+    g = pg.evaluate("(() => { const d = document.querySelector('#t-facets [data-pfd=category]'); const a = d.querySelector('summary').getBoundingClientRect(), l = d.querySelector('.tlist').getBoundingClientRect(); return [l.bottom <= a.top + 1, l.top >= 0]; })()")
+    s.ok("a list in the Test tab opens upwards and stays on screen", g == [True, True], g)
+    pg.mouse.click(5, 5)
+    pg.set_viewport_size({"width": 1360, "height": 1400})
+    bars = []
+    for f in ("group", "lang", "difficulty", "category"):
+        pg.evaluate("document.querySelector('#t-facets').scrollIntoView({block: 'center'})")
+        pg.click(f"#t-facets [data-pfd={f}] summary"); pg.wait_for_timeout(250)
+        bars.append(pg.evaluate(f"(() => {{ const l = document.querySelector('#t-facets [data-pfd={f}] .tlist'); return [l.scrollHeight > l.clientHeight, l.scrollWidth > l.clientWidth]; }})()"))
+        pg.mouse.click(5, 5)
+    s.ok("with room on screen a list has no scroll bar, vertical or horizontal", bars == [[False, False]] * 4, bars)
+    pg.set_viewport_size({"width": 1360, "height": 900})
+    pg.evaluate("showTab('prompts')"); pg.wait_for_timeout(1000)
+    n = pg.evaluate("document.querySelectorAll('#pr-facets details.tdd').length")
+    s.ok("Settings > Prompts has the filter: four lists and a search box", n == 4 and pg.locator("#pr-facets input[type=search]").count() == 1, n)
+    s.ok("the frame says what it does", "Prompt filter" in pg.inner_text("fieldset:has(#pr-facets) legend") and "marked" in pg.inner_text("fieldset:has(#pr-facets) legend"))
+    s.ok("it sits between the export / import buttons and the table", pg.evaluate("(() => { const b = $('pr-import').getBoundingClientRect(), f = $('pr-facets').getBoundingClientRect(), t = $('pr-table').getBoundingClientRect(); return b.bottom <= f.top && f.bottom <= t.top; })()"))
+    pg.click("#pr-facets [data-pfd=category] summary"); pg.wait_for_timeout(300)
+    g = pg.evaluate("(() => { const d = document.querySelector('#pr-facets [data-pfd=category]'); const l = d.querySelector('.tlist').getBoundingClientRect(); return [l.top >= 0, l.bottom <= innerHeight]; })()")
+    s.ok("a list there is fully on screen (up or down, whichever has room)", g == [True, True], g)
+    pg.mouse.click(5, 5)
+    total = pg.evaluate("document.querySelectorAll('#pr-table tbody tr').length")
+    pg.fill("#pr-facets input[type=search]", "log triage"); pg.wait_for_timeout(300)
+    shown = pg.evaluate("document.querySelectorAll('#pr-table tbody tr:not([hidden])').length")
+    s.ok("the search hides rows", 0 < shown < total, [shown, total])
+    pg.evaluate("document.querySelector('#pr-facets a[data-pfset=none][data-f=group]').click()")
+    s.ok("none in a list hides every row and disables the header check box", pg.evaluate("document.querySelectorAll('#pr-table tbody tr:not([hidden])').length") == 0 and pg.evaluate("$('pr-head').disabled"))
+    pg.evaluate("document.querySelector('#pr-facets a[data-pfset=all][data-f=group]').click()"); pg.fill("#pr-facets input[type=search]", ""); pg.wait_for_timeout(300)
+    s.ok("all and an empty search show every row again", pg.evaluate("document.querySelectorAll('#pr-table tbody tr:not([hidden])').length") == total)
+    pg.evaluate("document.querySelector('#pr-facets input[data-pf=category][value=custom]')?.click()")
+    s.ok("the filter of the Test tab is separate", pg.evaluate("shownBoxes().length === promptBoxes().length"))
+    s.ok("no page errors", not pg.errors, pg.errors[:2])
+    pg.close()
+
+
 def check_live_replay(s: Suite) -> None:
     """A live output stream opened (again) during a phase without output must not bring back the last request."""
     from llm_probe.server import BenchState
@@ -611,7 +652,7 @@ def check_open_browser(s: Suite) -> None:
 
 CHECKS = [("tour", check_tour), ("home", check_home), ("results", check_results), ("compare", check_compare), ("responses", check_responses),
           ("prompts", check_prompts), ("refusal", check_refusal), ("settings", check_settings), ("test_tab", check_test_tab), ("security", check_security),
-          ("numbers", check_numbers), ("batch_thinking", check_batch_thinking), ("live_output", check_live_output), ("interrupted", check_interrupted), ("edit_distance", check_edit_distance), ("live_replay", check_live_replay), ("restart_notice", check_restart_notice), ("open_browser", check_open_browser)]
+          ("numbers", check_numbers), ("batch_thinking", check_batch_thinking), ("live_output", check_live_output), ("interrupted", check_interrupted), ("edit_distance", check_edit_distance), ("prompt_filter", check_prompt_filter), ("live_replay", check_live_replay), ("restart_notice", check_restart_notice), ("open_browser", check_open_browser)]
 UPDATE_BASELINE = False
 
 
