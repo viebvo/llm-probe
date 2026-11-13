@@ -11,7 +11,7 @@ import re
 import asyncssh
 import httpx
 
-from .client import find_loaded, openwebui_ollama_model
+from .client import _same_model, find_loaded, openwebui_ollama_model
 from .config import Endpoint
 from .monitor import _connect_kwargs
 
@@ -106,6 +106,13 @@ async def _api(ep: Endpoint, model: str, errors: list[str]) -> dict:
                 owm = await openwebui_ollama_model(client, ep, model) if ep.kind == "openwebui" else {}
                 if loaded := find_loaded(r.json(), model, owm.get("digest", "")):
                     out["size"], out["size_vram"] = loaded.get("size"), loaded.get("size_vram")
+                if ep.kind == "ollama":  # the model file's size, to check what the server says about the placement
+                    try:
+                        tags = (await client.get(f"{ep.native_base}/api/tags")).json()
+                        out["file_size"] = next((m.get("size") for m in tags.get("models", [])
+                                                 if _same_model(m.get("name", ""), model) or _same_model(m.get("model", ""), model)), None)
+                    except (httpx.HTTPError, ValueError, AttributeError):
+                        pass
             if ep.kind == "openwebui":
                 return out  # /api/show is not passed through for prefixed names; no blob -> SSH matching by count
             r = await client.post(f"{ep.native_base}/api/show", json={"model": model})
@@ -181,6 +188,8 @@ async def collect(ep: Endpoint, model: str) -> dict:
             info["ssh"] = await _ssh(ep, ep.kind, info["api"].get("blob"))
         except (OSError, asyncssh.Error) as e:
             info["errors"].append(f"SSH: {type(e).__name__}: {e}")
+    if d := doubt(info):
+        info["doubt"] = d
     return info
 
 
@@ -226,7 +235,39 @@ def label(p: dict | None) -> str:
         parts.append(f"{len(gpus)} GPUs " + "+".join(f"{g['mib'] / 1024:.1f}" for g in gpus) + " GB")
     elif gpus:
         parts.append(f"GPU{gpus[0]['index']} {gpus[0]['mib'] / 1024:.1f} GB")
+    if p.get("doubt"):
+        parts.append(f"unclear: {p['doubt']}")
     return " · ".join(parts) or "-"
+
+
+def doubt(p: dict) -> str:
+    """Why the server's own placement figures look implausible ('' = nothing odd): the VRAM it reports against what
+    nvidia-smi sees (SSH), or, without monitoring, against the size of the model file. Some servers stream parts of the model
+    from disk or report sizes that do not match what they hold, and still say '100% GPU'."""
+    api = p.get("api", {})
+    size, vram, file_size = api.get("size"), api.get("size_vram"), api.get("file_size")
+    if not vram:
+        return ""
+    gpus = p.get("ssh", {}).get("gpus") or []
+    if gpus and all(g.get("mib") is not None for g in gpus):
+        seen, said = sum(g["mib"] for g in gpus), vram / 2**20
+        if seen < 0.5 * said or seen > 2 * said:
+            return f"the server reports {said / 1024:.1f} GB in VRAM, nvidia-smi shows {seen / 1024:.1f} GB"
+    elif file_size and size and vram >= 0.995 * size and file_size > 1.5 * vram:
+        return f"the server says 100% GPU with {vram / 2**30:.1f} GB, but the model file is {file_size / 2**30:.1f} GB (parts may be streamed from disk)"
+    return ""
+
+
+def offload_note(p: dict | None) -> str:
+    """'partial CPU offload (20 %)' / 'CPU offload 4 GB' when the model does not sit completely on the GPU, else ''."""
+    if not p:
+        return ""
+    share = cpu_share(p)
+    if share is not None and share >= 0.005:
+        return f"partial CPU offload ({round(share * 100)} %)"
+    if offload := _offload_gb(p):
+        return f"CPU offload {offload:g} GB"
+    return ""
 
 
 def needs_attention(p: dict | None) -> bool:
@@ -234,7 +275,7 @@ def needs_attention(p: dict | None) -> bool:
     if not p:
         return False
     share = cpu_share(p)
-    return bool(share and share >= 0.005) or bool(_offload_gb(p))
+    return bool(share and share >= 0.005) or bool(_offload_gb(p)) or bool(p.get("doubt"))
 
 
 PARAM_NAMES = [  # (key, display name) in display order

@@ -48,8 +48,12 @@ def prepare(pg, name: str) -> int:
         pg.evaluate("showTab('runs')"); pg.wait_for_timeout(1500)
         return 560
     if name == "run-details":
-        pg.evaluate("showTab('runs')"); pg.wait_for_timeout(1000); pg.evaluate("selectRun(3)"); pg.wait_for_timeout(3000)
-        return 850
+        # the gauges are the point of this picture: the run of a model that sees images (all gauges filled), scrolled to the Quality box
+        pg.evaluate("showTab('runs')"); pg.wait_for_timeout(1000); pg.evaluate("selectRun(2)"); pg.wait_for_timeout(3500)
+        pg.evaluate("(() => { const s = [...document.querySelectorAll('#tab-runs summary')].find((e) => e.textContent.trim().startsWith('Quality')); "
+                    "window.scrollTo(0, s.getBoundingClientRect().top + scrollY - 78); })()")
+        pg.wait_for_timeout(500)
+        return 900
     if name == "compare":
         pg.evaluate("setCompare([2,3,5,6])"); pg.evaluate("showTab('cmp')"); pg.wait_for_timeout(4500)
         return 850
@@ -88,7 +92,8 @@ def main() -> int:
                     pg.goto(f"http://127.0.0.1:{port}/", wait_until="networkidle")
                     pg.evaluate("localStorage.clear()")
                     pg.set_viewport_size({"width": WIDTH, "height": prepare(pg, name)})
-                    pg.evaluate("window.scrollTo(0, 0)")
+                    if name != "run-details":
+                        pg.evaluate("window.scrollTo(0, 0)")
                     pg.screenshot(path=str(out / f"{name}{'-dark' if scheme == 'dark' else ''}.png"))
                     pg.close()
             browser.close()

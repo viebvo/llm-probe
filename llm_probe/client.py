@@ -32,6 +32,10 @@ class RequestResult:
     prompt_tokens: int | None = None
     completion_tokens: int | None = None
     tokens_from_usage: bool = False  # False = tokens estimated from stream chunks
+    prefill_tokens: int | None = None  # prompt tokens the server really processed (not taken from its prompt cache)
+    prefill_tps: float | None = None  # ... and how fast; only what the server reports, never estimated
+    cached_tokens: int | None = None  # prompt tokens served from the server's prompt cache
+    metrics: dict = field(default_factory=dict)  # the endpoint's extra_metrics for this request (see metrics.py)
     text: str = ""
     error: str = ""
     started_at: float = 0.0  # time.monotonic() when sent
@@ -427,6 +431,16 @@ async def chat_stream(
                     res.prompt_tokens = usage.get("prompt_tokens")
                     res.completion_tokens = usage.get("completion_tokens")
                     res.tokens_from_usage = True
+                    cached = (usage.get("prompt_tokens_details") or {}).get("cached_tokens")  # OpenAI style
+                    if isinstance(cached, int):
+                        res.cached_tokens = cached
+                if isinstance(timings := obj.get("timings"), dict):  # llama.cpp server (also behind compatible proxies)
+                    if timings.get("prompt_n") is not None:
+                        res.prefill_tokens = timings["prompt_n"]
+                    if timings.get("prompt_per_second"):
+                        res.prefill_tps = float(timings["prompt_per_second"])
+                    if timings.get("cache_n") is not None:
+                        res.cached_tokens = timings["cache_n"]
                 for choice in obj.get("choices") or []:
                     delta = choice.get("delta") or {}
                     content = delta.get("content") or ""
@@ -543,6 +557,9 @@ async def _ollama_stream(
                         res.prompt_tokens = obj.get("prompt_eval_count")
                         res.completion_tokens = obj["eval_count"]
                         res.tokens_from_usage = True
+                        if obj.get("prompt_eval_count") is not None and obj.get("prompt_eval_duration"):
+                            res.prefill_tokens = obj["prompt_eval_count"]
+                            res.prefill_tps = obj["prompt_eval_count"] / (obj["prompt_eval_duration"] / 1e9)
                     break
     except httpx.TimeoutException as e:
         if not _stalled(res, e, timeout):

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import math
 import re
@@ -24,7 +25,7 @@ from .deviation import TASKS, evaluate_step, extract_code
 from .capcheck import CAP_STEPS, CapabilityProbe
 from .prompts import (FIT_CAP_TOKENS, FIT_MIN_TOKENS, FIT_SHARE, OVERFLOW_MAX_CONTEXT, OVERFLOW_SHARE, PROMPTSET_VERSION,
                       SAFETY_MIN_TOKENS, OVERFLOW_ONE_REP_ABOVE, SWEEP_PASS, SWEEP_SIZES, SWEEP_STOP_AFTER, Prompt, build_adaptive, image_b64, image_mime, probe_log, prompt_hash, run_order, sweep_sizes, new_code_word, with_code_word)
-from . import __version__, placement, sandbox, storage
+from . import __version__, metrics, placement, sandbox, storage
 
 # 32x32 grey PNG: probes whether a server accepts images at all
 _PROBE_PNG = ("iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAIAAAD8GO2jAAAAKElEQVR42u3NQQEAAAQEMCS/6Erw2wqsk9SnqWcCgUAgEAgEAoHgygK+"
@@ -88,10 +89,14 @@ class SettingRejected(RuntimeError):
 
 
 class BenchmarkRunner:
+    cache_bust = False  # --cache-bust: every repetition gets its own harmless prefix, so none is served from a prompt cache
+    require_full_gpu = False  # --require-full-gpu: stop before the measurement if the model is partly in system RAM
+
     def __init__(self, ep: Endpoint, model: str, prompts: list[Prompt], settings: BenchSettings, emit: EventCallback,
                  capabilities: bool = False, note: str = ""):
         self.note = note  # stored with the run, e.g. "my comment · batch 3/12 · max_tokens 8192 · thinking high"
         self.step_note = note  # the batch part of it, without the user's comment
+        self._metric_warned: set[str] = set()
         self.stop_batch = ""  # set when a setting was rejected: the reason
         self.ctx_limit: int | None = None  # context per request, for servers that refuse prompt + max_tokens above it
         self.clamped: dict = {}
@@ -127,6 +132,23 @@ class BenchmarkRunner:
         self.kv_peak: dict[str, float] = {}  # vLLM: phase -> peak KV cache usage (0..1)
         self.thinking = settings.thinking  # dropped if the model has no reasoning
 
+    async def _with_metrics(self, client: httpx.AsyncClient, call):
+        """call() (a request), with the endpoint's extra metrics read before and after it; a failing URL warns once."""
+        if not self.ep.extra_metrics:
+            return await call()
+        warned: set[str] = set()
+        before = await metrics.fetch(client, self.ep, warned)
+        r = await call()
+        r.metrics = metrics.combine(self.ep, before, await metrics.fetch(client, self.ep, warned))
+        if (new := warned - self._metric_warned):
+            self._metric_warned |= new
+            self._log(f"[yellow]Extra metric not readable: {', '.join(sorted(new))} (check the URL; the run goes on).[/]")
+        return r
+
+    def _bust_id(self, rep: int) -> str:
+        """A short id that differs per run and repetition (the prefix of --cache-bust)."""
+        return hashlib.sha1(f"{self.started_id}:{rep}:{self.model}".encode()).hexdigest()[:6]
+
     def _log(self, msg: str) -> None:
         self.emit("log", msg=msg)
 
@@ -155,6 +177,11 @@ class BenchmarkRunner:
         keep = phase in ("single", "session", "sweep")  # responses are kept, not those of the load phase
         if self.word != ESCAPE_WORD:
             extra = (extra or {}) | {"escape": self.word}  # read-time checks look for this word instead of "unsolvable"
+        if r.metrics:
+            extra = (extra or {}) | {"metrics": r.metrics}
+        if r.prefill_tps is not None or r.cached_tokens is not None:
+            extra = (extra or {}) | {"prefill": {k: v for k, v in (("tokens", r.prefill_tokens), ("tps", r.prefill_tps),
+                                                                    ("cached", r.cached_tokens)) if v is not None}}
         db.execute(
             "INSERT INTO results (run_id, phase, prompt_id, concurrency, rep, ok, ttft, ttfa, total, prompt_tokens,"
             " completion_tokens, decode_tps, e2e_tps, wall, text, error, tool_calls, extra, tokens_estimated, cut)"
@@ -208,11 +235,12 @@ class BenchmarkRunner:
         if prompt.adaptive != "overflow":  # (that one is meant to be refused or cut: the size of the answer does not matter)
             max_tokens = self._fit_max_tokens(max_tokens, len(prompt.text) + sum(len(str(t)) for t in prompt.turns + prompt.tools),
                                               len(prompt.images), est_tokens or self.adaptive.get(prompt.id, {}).get("est_tokens"))
-        ask = lambda mt: chat_stream(client, self.ep, self.model, prompt.text, mt, self.s.temperature,  # noqa: E731
+        text = f"[run {self._bust_id(rep)}] {prompt.text}" if self.cache_bust else prompt.text
+        ask = lambda mt: chat_stream(client, self.ep, self.model, text, mt, self.s.temperature,  # noqa: E731
                                      self.s.request_timeout, seed=1234 + rep, on_delta=live.delta if live else None,
                                      thinking=self.thinking, images=[(image_mime(n), image_b64(n)) for n in prompt.images],
                                      tools=prompt.tools, turns=prompt.turns)
-        r = await ask(max_tokens)
+        r = await self._with_metrics(client, lambda: ask(max_tokens))
         # the estimate was too low: the server says how much room is really left - use it, once
         m = _ROOM_ERROR.search(r.error or "") if not r.ok and self.ctx_limit and prompt.adaptive != "overflow" else None
         if m and (room := int(m.group(1)) - int(m.group(2)) - 8) >= 256 and room < max_tokens:
@@ -395,9 +423,10 @@ class BenchmarkRunner:
             if self.live:
                 self.live.start(self._live_title(f"[step {n}/{len(task.steps)}] {p.name}"))
             chars = len(task.steps[0].request) + len(task.system or "") + sum(len(str(m.get("content", ""))) for m in history)
-            r = await chat_stream(client, self.ep, self.model, task.steps[0].request, self._fit_max_tokens(max_tokens, chars),
-                                  self.s.temperature, self.s.request_timeout, seed=1234, on_delta=self.live.delta if self.live else None,
-                                  thinking=self.thinking, turns=list(history), system=task.system)
+            r = await self._with_metrics(client, lambda: chat_stream(
+                client, self.ep, self.model, task.steps[0].request, self._fit_max_tokens(max_tokens, chars),
+                self.s.temperature, self.s.request_timeout, seed=1234, on_delta=self.live.delta if self.live else None,
+                thinking=self.thinking, turns=list(history), system=task.system))
             if r.ok:
                 ev = await asyncio.to_thread(evaluate_step, task, n, extract_code(r.text))
             else:
@@ -463,7 +492,10 @@ class BenchmarkRunner:
         )
         db.commit()
         run_id = cur.lastrowid
+        self.started_id = f"{run_id}-{time.time_ns()}"
         t_run = time.monotonic()
+        if self.cache_bust:
+            settings["cache_bust"] = True
         status = "failed"
         live = kv = None
         try:
@@ -517,6 +549,14 @@ class BenchmarkRunner:
                 text = placement.label(pl)
                 style = "yellow" if placement.needs_attention(pl) else "green" if text != "-" else "dim"
                 self._log(f"Placement: [{style}]{text}[/]")
+                if warn := placement.offload_note(pl):
+                    self._log(f"[bold yellow]Warning: {warn}.[/] Part of the model runs on the CPU, so speeds are far lower than on a "
+                              "full GPU (a smaller context, --num-ctx-values, often makes it fit).")
+                    self.note = " · ".join(filter(None, [self.note, warn]))
+                    db.execute("UPDATE runs SET note = ? WHERE id = ?", (self.note, run_id))
+                    db.commit()
+                    if self.require_full_gpu:
+                        raise RuntimeError(f"{warn} - stopped by --require-full-gpu")
                 self._log(f"Server parameters: {placement.params_label(pl)}")
                 for err in pl["errors"]:
                     self._log(f"[yellow]Placement check incomplete:[/] {err}")
@@ -657,7 +697,7 @@ class BatchRunner:
 
     def __init__(self, ep: Endpoint, models: list[str], prompts: list[Prompt], settings: BenchSettings,
                  emit: EventCallback, capabilities: bool = False, per_model: dict[str, BenchSettings] | None = None,
-                 comment: str = ""):
+                 comment: str = "", cache_bust: bool = False, require_full_gpu: bool = False):
         """per_model: settings of the models that differ from `settings` (Test tab: a model's own parameters).
         comment: the user's words for the run(s); it opens the note of every run, before the batch numbering."""
         self.ep = ep
@@ -673,6 +713,7 @@ class BatchRunner:
                 runner = BenchmarkRunner(step["endpoint"], m, prompts, step["settings"], self._emit, capabilities,
                                          note=" · ".join(filter(None, [comment, note])))
                 runner.step_note = note
+                runner.cache_bust, runner.require_full_gpu = cache_bust, require_full_gpu
                 self.runners.append(runner)
         self.total_steps = sum(r.total_steps for r in self.runners)
 

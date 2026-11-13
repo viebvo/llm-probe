@@ -596,6 +596,8 @@ LLM_PROBE_API_KEY=... ./run.sh --configure cloud --url https://api.example.com -
 * The settings are those last used in the web UI, unless you give them. These options override them for this run only. They are not saved: `--temperature`, `--max-tokens`, `--thinking`, `--reps`, `--timeout`, `--concurrency 1,2,4,8`, `--requests-per-level`, `--no-single`, `--no-concurrency`, `--capabilities`, `--capabilities-only`.
 * **`--comment TEXT`** is your own word for the run(s), for example a build or commit id. It opens the note of every run it creates (a batch adds its numbering behind it), like the *Comment for run* field of the Test page.
 * The prompts are chosen by rules, the same ones as the default and the presets of the web UI. Use the facets `--lang`, `--difficulty`, `--group` and `--kind` (comma separated). The defaults are those of a new test in the web UI, and `none` means prompts without a language. Or give exactly the ids with `--prompts`.
+* **`--cache-bust`** puts a short unique prefix (`[run 3f2a9c]`) before every request, so no repetition is answered from the server's prompt cache. Without it a repeated long prompt is cold only in the first repetition (the run details show *TTFT cold / warm*). The run stores `cache_bust`.
+* **`--require-full-gpu`** stops a run before the measurement if the model is partly in system RAM (CPU offload). Without it the run goes on, with a warning in the log and the note *partial CPU offload (x %)* on the run, because such a run is many times slower than a model that fits on the GPU.
 * The progress is printed as plain text.
 * **`--export-to PATH`** writes one export file with all runs of the call after the last run, for the import in the web UI (Results > Import). `PATH` is a file name (`*.json`) or a directory, which gets `<YYYYmmdd-HHMM>_<endpoint>_<model>.json` (`batch` instead of the model name for several models). If the export fails the exit code is 1, but the runs stay in the database.
 * One test runs at a time (see above). While another process runs one, the command stops and says who. `--force` starts anyway.
@@ -734,6 +736,17 @@ Strong models score near the ceiling on most prompts. So the point is not a rank
 
 All endpoints are queried in the same way, through the OpenAI-compatible API (`/v1/chat/completions`, streaming). All timings are measured on the client.
 
+**Extra figures of the backend**
+
+A server can have figures of its own that matter, for example hits of an expert cache or the KV cache usage. List them in the endpoint (`extra_metrics` in `config.json`, or `--configure NAME --extra-metrics JSON`) and the tool reads them before and after every request:
+
+```json
+[{"name": "expert_hits", "url": "/expertstream/api/status", "json_path": "stats.hits", "mode": "delta"},
+ {"name": "kv_usage", "url": "/metrics", "prometheus": "vllm:gpu_cache_usage_perc", "mode": "gauge"}]
+```
+
+`url` is a path on the endpoint's own server (an address on another host is not used, so the API key never leaves it). The value comes from a JSON document (`json_path`, dots, list positions as numbers) or from Prometheus text (`prometheus`, the samples of that metric are added up). `delta` is after minus before, `gauge` the value after. The figures are stored with each response (so they are in the export) and shown as extra columns in the table of single requests (median). If a URL cannot be read, the run logs one warning and goes on.
+
 **Warmup**
 
 One short request. It makes Ollama load the model. Its duration is shown as "warmup/load". It is not part of the results.
@@ -752,6 +765,8 @@ What is measured, as the median over the repetitions:
 * **TTFA**: time to the first token of the answer itself, after any reasoning. This is the wait a user actually sees. For models that do not reason, it equals TTFT.
 * **decode tok/s**: the tokens after the first, divided by the time after it.
 * **end-to-end tok/s** and the token counts.
+* **TTFT cold / warm**: the first repetition against the median of the later ones. A server with a prompt cache (prefix cache) answers a repeated long prompt far faster, so the plain TTFT mixes both (30 times apart for a long context). `--cache-bust` on the command line makes every repetition cold.
+* **Prefill tok/s** and **cached tokens**: how fast the server processed the prompt and how much of it came from its prompt cache, as the server reports it (Ollama `prompt_eval_duration`, llama.cpp `timings`, OpenAI `cached_tokens`). Servers that report nothing leave the field empty; the tool never estimates it.
 
 **Concurrent load**
 
@@ -881,6 +896,14 @@ So you can compare one model across languages. You see the speed (tokenizers dif
 4. Add a handwritten note: the text in `NOTES`, the image generated with `tools/make_test_images.py --only note_xx.jpg`.
 
 The selection, the prompt form and the results pick it up from there.
+
+### Code and log answers
+
+Two of the standard prompts have a check that needs more than comparing lines. Their wording is unchanged (so the prompt set version did not change and older runs stay comparable); the checks are applied when results are read, so older runs get them too.
+
+* **Code (`code_py`)**: the code blocks of the answer are put together (tests and `pytest` imports removed, blocks that are not Python dropped) and run in the same sandbox as the long sessions. Three items: a valid nginx line (combined format) becomes a dataclass with IP, method, path, status, bytes and user agent, an invalid line raises an error or gives `None`, and the answer contains at least three `def test_` functions. The function may have any name that takes one line.
+* **Log summary (`long_ctx`)**: the truth is computed from the same generated log the prompt contains. One item per error kind (OOM, connection refused, timeout): the answer names it and exactly the services that have it; one more item: the one service without errors (`scheduler`) is not named as failing. This is a heuristic on words near each other and shows as *n/4*; a wrong *no* is possible when an answer is worded very unusually.
+* Running model code takes about 0.2 s per answer. The results are kept in `data/check_cache.jsonl`, so the first Results list after the update can take a while for a big database; later ones are fast. The file can be deleted at any time.
 
 ### Harder tests
 
@@ -1387,7 +1410,9 @@ It is recorded with every run after the warmup. You see it in the results ("Plac
 | **vLLM** | `/metrics`: GPU memory utilization, KV cache blocks and type; peak KV cache usage per phase | + VRAM per GPU and the `vllm serve` arguments: tensor/pipeline parallel, quantization, `--cpu-offload-gb`, max model len |
 | **OpenAI-compatible** | nothing (no standard) | VRAM per GPU of all GPU processes |
 
-A placement below 100 % GPU (Ollama), or a vLLM CPU offload, is shown in yellow. Even a few percent on the CPU slow generation down noticeably.
+A placement below 100 % GPU (Ollama), or a vLLM CPU offload, is shown in yellow. Even a few percent on the CPU slow generation down noticeably. The log gets a warning at the start of the run, the run's note says *partial CPU offload (20 %)*, and on the command line `--require-full-gpu` stops the run before the measurement.
+
+The tool also checks whether the server's figures are plausible. If the server says 100 % GPU but the model file (Ollama `/api/tags`) is much bigger than what it reports in VRAM, or `nvidia-smi` (with SSH) shows a very different VRAM use than the server reports, the placement says *unclear* and gives the reason. Servers that stream parts of the model from disk, or report sizes that do not match, otherwise look like a perfect GPU fit.
 
 Ollama's log has the exact layer split ("offloaded 41/41 layers"). But the SSH user needs to be in the `systemd-journal` group to read it. So the tool does not use it.
 
@@ -1441,7 +1466,7 @@ What to know:
 
 **SSH**
 
-SSH host keys are not verified (the servers are on the local LAN). A key file can be used instead of a password.
+SSH host keys are not verified by default (the servers are on the local LAN, and their keys change when a container is rebuilt). To check them, set `ssh_known_hosts` of the endpoint in `config.json` or use `--configure NAME --ssh-known-hosts auto` (the usual `~/.ssh/known_hosts`) or `--ssh-known-hosts FILE`; `off` is the default again. A key file can be used instead of a password.
 
 ## Security notes
 

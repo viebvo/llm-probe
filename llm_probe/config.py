@@ -62,6 +62,8 @@ class Endpoint:
     ssh_user: str = ""
     ssh_password: str = ""
     ssh_key_file: str = ""
+    ssh_known_hosts: str = ""  # "" / "off": host keys are not checked (default, lab servers); "auto": ~/.ssh/known_hosts; else a known_hosts file
+    extra_metrics: list = field(default_factory=list)  # figures of the backend read per request, see metrics.py
     num_ctx: int = 0  # Ollama (also behind Open WebUI): context length to load the model with (0 = server default)
     price_in: float = 0.0  # optional price per 1 million input tokens (any currency), for cost estimates
     price_out: float = 0.0  # ... per 1 million output tokens

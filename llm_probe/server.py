@@ -116,6 +116,8 @@ def endpoint_from_body(body: dict, old: Endpoint | None) -> Endpoint:
         ssh_user=str(body.get("ssh_user", "")).strip(),
         ssh_password=str(body.get("ssh_password") or "") or (old.ssh_password if keep_ssh else ""),
         ssh_key_file=str(body.get("ssh_key_file", "")).strip(),
+        ssh_known_hosts=old.ssh_known_hosts if old else "",  # set in config.json or on the command line, not in the form
+        extra_metrics=old.extra_metrics if old else [],
         num_ctx=num_ctx,
         price_in=price("price_in"),
         price_out=price("price_out"),

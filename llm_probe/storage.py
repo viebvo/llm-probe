@@ -153,6 +153,11 @@ class PromptStats:
     check_score: float | None = None  # mean share of correct lines
     cut_tokens: int = 0  # successful responses cut off at max_tokens
     cut_time: int = 0  # ... at the time limit
+    prefill_tps: float | None = None  # Median speed of the prompt processing, as the server reported it (None = not reported)
+    cached_tokens: float | None = None  # Median prompt tokens served from the server's prompt cache (None = not reported)
+    ttft_cold: float | None = None  # Median TTFT of the first repetition (cold: nothing cached yet)
+    ttft_warm: float | None = None  # ... of the later repetitions (a prompt cache may have the prompt already)
+    metrics: dict = field(default_factory=dict)  # the endpoint's extra metrics, Median per name
 
 
 @dataclass
@@ -259,6 +264,16 @@ def evaluate(p: Prompt | None, row: sqlite3.Row) -> CheckResult | None:
     return replace(c, cut=row["cut"]) if row["cut"] else c  # the check itself is cached
 
 
+def _metric_medians(rows: list[sqlite3.Row]) -> dict[str, float]:
+    """{name: median over the responses} of the endpoint's extra metrics stored with the responses."""
+    values: dict[str, list[float]] = {}
+    for r in rows:
+        for name, v in (row_extra(r).get("metrics") or {}).items():
+            if isinstance(v, (int, float)):
+                values.setdefault(name, []).append(v)
+    return {n: median(v) for n, v in values.items()}
+
+
 def single_stats(db: sqlite3.Connection, run_id: int) -> list[PromptStats]:
     rows = db.execute("SELECT * FROM results WHERE run_id = ? AND phase = 'single' ORDER BY id", (run_id,)).fetchall()
     by_prompt: dict[str, list[sqlite3.Row]] = {}
@@ -276,10 +291,16 @@ def single_stats(db: sqlite3.Connection, run_id: int) -> list[PromptStats]:
             v = [r[col] for r in ok if r[col] is not None]
             return median(v) if v else None
 
+        pre = [row_extra(r).get("prefill") or {} for r in ok]
+        tps, cached = [x["tps"] for x in pre if "tps" in x], [x["cached"] for x in pre if "cached" in x]
+        cold = [r["ttft"] for r in ok if r["rep"] == 0 and r["ttft"] is not None]
+        warm = [r["ttft"] for r in ok if r["rep"] > 0 and r["ttft"] is not None]
         out.append(PromptStats(pid, len(rs), len(rs) - len(ok), med("ttft"), med("ttfa"), med("decode_tps"), med("e2e_tps"),
                                med("total"), med("prompt_tokens"), med("completion_tokens"), len(checks),
                                sum(c.exact for c in checks), _avg([c.score for c in checks]),
-                               sum(r["cut"] == "tokens" for r in ok), sum(r["cut"] == "time" for r in ok)))
+                               sum(r["cut"] == "tokens" for r in ok), sum(r["cut"] == "time" for r in ok),
+                               median(tps) if tps else None, median(cached) if cached else None,
+                               median(cold) if cold else None, median(warm) if warm else None, _metric_medians(ok)))
     return out
 
 

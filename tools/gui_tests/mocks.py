@@ -55,8 +55,15 @@ def stream_app(rate: float = 600.0, tokens: int = 3000) -> web.Application:
     five seconds), 150 for everything else; honours max_tokens (capability probes are short)."""
     async def models(_): return web.json_response({"data": [{"id": "mock-fast"}]})
 
+    served = {"n": 0}  # counted for the extra-metrics test: /status and /metrics show it
+
+    async def status(_): return web.json_response({"stats": {"hits": served["n"] * 3, "misses": 1}})
+
+    async def prom(_): return web.Response(text=f"# HELP x\nmock_cache_usage{{engine=\"0\"}} 0.25\nmock_cache_usage{{engine=\"1\"}} 0.5\nmock_served_total {served['n']}\n")
+
     async def chat(r):
         body = await r.json()
+        served["n"] += 1
         resp = web.StreamResponse(headers={"Content-Type": "text/event-stream"})
         await resp.prepare(r)
         prompt = " ".join(str(m.get("content")) for m in body.get("messages", []))
@@ -77,7 +84,8 @@ def stream_app(rate: float = 600.0, tokens: int = 3000) -> web.Application:
         return resp
 
     app = web.Application()
-    app.add_routes([web.get("/v1/models", models), web.post("/v1/chat/completions", chat)])
+    app.add_routes([web.get("/v1/models", models), web.post("/v1/chat/completions", chat),
+                    web.get("/status", status), web.get("/metrics", prom)])
     return app
 
 

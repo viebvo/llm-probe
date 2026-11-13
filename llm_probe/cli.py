@@ -16,7 +16,7 @@ from dataclasses import asdict, replace
 from rich.errors import MarkupError
 from rich.text import Text
 
-from . import __version__, storage
+from . import __version__, metrics, storage
 from .bench import BatchRunner, clean_comment, result_line
 from .client import api_error_hint, list_models
 from .config import (DEFAULT_PORTS, clean_currency, MAX_BATCH_RUNS, THINKING_MODES, BenchSettings, Config, Endpoint, batch_plan, edit_config, load_config,
@@ -91,6 +91,10 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--capabilities", action="store_true", help="(implied) the capability check always runs now")
     run.add_argument("--capabilities-only", action="store_true", help="run only the capability check, no prompts")
     run.add_argument("--comment", help="your words for the run(s); stored as the start of the run's note (e.g. a build or commit id)")
+    run.add_argument("--require-full-gpu", action="store_true", help="stop a run before the measurement if the model is partly in "
+                     "system RAM (otherwise a warning and a note on the run)")
+    run.add_argument("--cache-bust", action="store_true", help="put a short unique prefix before every request, so no repetition "
+                     "is answered from the server's prompt cache (cold time to first token)")
     run.add_argument("--force", action="store_true", help="start even if another LLM Probe runs a test")
 
     out = p.add_argument_group("export (--export, and --export-to with --run)")
@@ -119,6 +123,11 @@ def build_parser() -> argparse.ArgumentParser:
     conf.add_argument("--ssh-port", type=int)
     conf.add_argument("--ssh-user")
     conf.add_argument("--ssh-key-file")
+    conf.add_argument("--ssh-known-hosts", metavar="off|auto|FILE", help="check the SSH server's host key: auto = ~/.ssh/known_hosts, or "
+                      "a known_hosts file (default off: lab servers whose keys change when rebuilt)")
+    conf.add_argument("--extra-metrics", metavar="JSON", help="figures of the server's own backend read before and after every request, "
+                      "e.g. '[{\"name\": \"hits\", \"url\": \"/status\", \"json_path\": \"stats.hits\", \"mode\": \"delta\"}]' "
+                      "(also \"prometheus\": metric name; mode delta or gauge); '[]' removes them")
     conf.add_argument("--num-ctx", type=int, help="Ollama: context length to load the model with (0 = server default)")
     conf.add_argument("--price-in", type=float, help="price per 1 million input tokens")
     conf.add_argument("--price-out", type=float, help="price per 1 million output tokens")
@@ -331,7 +340,8 @@ def run_batch(args: argparse.Namespace) -> int:
             print(f"Run #{d['run_id']} finished: {d['status']}", flush=True)
 
     try:
-        run_ids = asyncio.run(BatchRunner(ep, models, prompts, settings, emit, caps, comment=clean_comment(args.comment)).run())
+        run_ids = asyncio.run(BatchRunner(ep, models, prompts, settings, emit, caps, comment=clean_comment(args.comment),
+                                     cache_bust=args.cache_bust, require_full_gpu=args.require_full_gpu).run())
     except KeyboardInterrupt:
         print("Interrupted.", file=sys.stderr)
         return EXIT_INTERRUPTED
@@ -445,11 +455,19 @@ def configure(args: argparse.Namespace) -> int:
             print(f"Endpoint '{name}' created (type {ep.kind}).")
         for field, value in (("kind", args.type), ("base_url", args.url and args.url.strip()), ("model", args.model),
                              ("ssh_host", args.ssh_host), ("ssh_port", args.ssh_port), ("ssh_user", args.ssh_user),
-                             ("ssh_key_file", args.ssh_key_file), ("num_ctx", args.num_ctx),
+                             ("ssh_key_file", args.ssh_key_file), ("ssh_known_hosts", args.ssh_known_hosts), ("num_ctx", args.num_ctx),
                              ("price_in", args.price_in), ("price_out", args.price_out),
                              ("currency", None if args.currency is None else clean_currency(args.currency))):
             if value is not None:
                 setattr(ep, field, value)
+        if args.extra_metrics is not None:
+            try:
+                raw = json.loads(args.extra_metrics)
+            except ValueError:
+                return fail("--extra-metrics: that is not valid JSON")
+            ep.extra_metrics = metrics.clean(raw)
+            if len(ep.extra_metrics) != (len(raw) if isinstance(raw, list) else -1):
+                print("Warning: entries without name, url and json_path/prometheus were dropped.", file=sys.stderr)
         if args.model is not None:
             ep.models = [args.model] if args.model else []  # the web UI keeps its model selection here
         if args.clear_secrets:

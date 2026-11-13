@@ -211,7 +211,8 @@ function compareHtml(c, runs) {
     '<span>click a column header to sort the rows (again: reverse, again: original order)</span></div>';
 
   const smetrics = [{ f: "ttft", title: "TTFT", digits: 2, hb: false }, { f: "ttfa", title: "TTFA", digits: 2, hb: false },
-    { f: "decode_tps", title: "tok/s", digits: 1, hb: true }, { f: "completion_tokens", title: "Tok.", digits: 0, plain: true }];
+    { f: "decode_tps", title: "tok/s", digits: 1, hb: true },
+    { f: "prefill_tps", title: "Prefill tok/s", digits: 0, hb: true }, { f: "completion_tokens", title: "Tok.", digits: 0, plain: true }];
   const scols = cols(smetrics);
   const sval = (key, p) => { const [f, n] = key.split(":"); return key === "prompt" ? promptName(p) : stats[+n][p]?.[f]; };
   const rows = groupedRows(all, 1 + scols.length, (pids) => sorted("single", pids, sval).map((p) => [esc(promptName(p)) + ctxNote(runs, p),

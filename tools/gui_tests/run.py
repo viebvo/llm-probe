@@ -559,6 +559,101 @@ def check_cli(s: Suite) -> None:
     shutil.rmtree(out, ignore_errors=True)
 
 
+def check_prefill(s: Suite) -> None:
+    """Prefill figures: read from an Ollama done message and from llama.cpp / OpenAI style chunks; offload note; cache-bust prefix."""
+    import asyncio
+    import httpx
+    from llm_probe import placement
+    from llm_probe.client import chat_stream
+    from llm_probe.config import Endpoint
+
+    def run(ep, body: bytes):
+        async def go():
+            async with httpx.AsyncClient(transport=httpx.MockTransport(lambda req: httpx.Response(200, content=body))) as c:
+                return await chat_stream(c, ep, "m", "hi", 16, 0.0, 10)
+        with __import__("concurrent.futures").futures.ThreadPoolExecutor(1) as ex:  # the page tests own this thread's event loop
+            return ex.submit(asyncio.run, go()).result()
+
+    done = {"model": "m", "message": {"content": ""}, "done": True, "done_reason": "stop", "prompt_eval_count": 2000,
+            "prompt_eval_duration": 500_000_000, "eval_count": 10}
+    r = run(Endpoint("o", "ollama", "http://x", num_ctx=4096), (json.dumps({"message": {"content": "a"}, "done": False}) + "\n" + json.dumps(done) + "\n").encode())
+    s.ok("Ollama: prefill tok/s from prompt_eval_count / prompt_eval_duration", r.prefill_tokens == 2000 and round(r.prefill_tps) == 4000, (r.prefill_tokens, r.prefill_tps))
+    sse = ("data: " + json.dumps({"choices": [{"delta": {"content": "a"}}], "timings": {"prompt_n": 20, "prompt_per_second": 812.5, "cache_n": 1980}}) + "\n\n"
+           "data: " + json.dumps({"choices": [], "usage": {"prompt_tokens": 2000, "completion_tokens": 3, "prompt_tokens_details": {"cached_tokens": 1900}}}) + "\n\ndata: [DONE]\n\n").encode()
+    r = run(Endpoint("l", "openai", "http://x"), sse)
+    s.ok("llama.cpp timings: prefill tok/s and cache_n are read", r.prefill_tps == 812.5 and r.prefill_tokens == 20 and r.cached_tokens in (1900, 1980), (r.prefill_tps, r.cached_tokens))
+    r = run(Endpoint("p", "openai", "http://x"), ("data: " + json.dumps({"choices": [{"delta": {"content": "a"}}]}) + "\n\ndata: [DONE]\n\n").encode())
+    s.ok("a server that reports nothing leaves the figures empty (never estimated)", r.prefill_tps is None and r.cached_tokens is None and r.prefill_tokens is None)
+    s.ok("offload note: partial CPU offload is named, a full GPU is not",
+         placement.offload_note({"api": {"size": 100, "size_vram": 80}}) == "partial CPU offload (20 %)" and placement.offload_note({"api": {"size": 100, "size_vram": 100}}) == "")
+    out = Path(tempfile.mkdtemp(prefix="llm-probe-prefill-"))
+    env = {**os.environ, "LLM_PROBE_HOME": str(s.home)}
+    r2 = subprocess.run([sys.executable, "-m", "llm_probe", "--run", "mock-stream", "mock-model", "--prompts", "short_de", "--reps", "2", "--no-concurrency",
+                         "--cache-bust", "--export-to", str(out / "x.json")], cwd=ROOT, env=env, capture_output=True, text=True, timeout=240)
+    d = json.loads((out / "x.json").read_text())["runs"] if (out / "x.json").exists() else []
+    s.ok("--cache-bust is stored with the run", r2.returncode == 0 and bool(d) and d[0]["settings"].get("cache_bust") is True, r2.stderr[-200:])
+    shutil.rmtree(out, ignore_errors=True)
+
+
+def check_answer_checks(s: Suite) -> None:
+    """code_py / long_ctx get a check without a new prompt set version; extra metrics, placement doubt and SSH host keys."""
+    env = {**os.environ, "LLM_PROBE_HOME": str(s.home)}  # (the code check keeps a cache file next to the database)
+
+    def py(code: str):
+        r = subprocess.run([sys.executable, "-c", code], cwd=ROOT, env=env, capture_output=True, text=True, timeout=240)
+        return r.stdout.strip(), r.stderr[-300:]
+
+    good = (
+        "```python\nimport re\nfrom dataclasses import dataclass\n"
+        "LOG = re.compile(r'^(\\S+) \\S+ \\S+ \\[(.*?)\\] \"(\\S+) (\\S+) [^\"]*\" (\\d+) (\\d+) \"[^\"]*\" \"([^\"]*)\"$')\n"
+        "@dataclass\nclass Entry:\n    ip: str\n    time: str\n    method: str\n    path: str\n    status: int\n    size: int\n    agent: str\n"
+        "def handle(line: str):\n    m = LOG.match(line)\n    if not m:\n        return None\n    ip, t, me, pa, st, sz, ag = m.groups()\n"
+        "    return Entry(ip, t, me, pa, int(st), int(sz), ag)\n```\n```python\nimport pytest\ndef test_a(): pass\ndef test_b(): pass\ndef test_c(): pass\n```")
+    prog = ("import json, sys\nfrom llm_probe.check import evaluate\nfrom llm_probe.prompts import all_prompts\n"
+            "p = {x.id: x for x in all_prompts()}\nt = json.loads(sys.stdin.read()) if False else %r\n"
+            "r = evaluate(p['code_py_en'].check, p['code_py_en'].expected, t)\nprint(r.summary(), p['code_py_en'].check)")
+    out, err = py(prog % good)
+    s.ok("code_py: a working parser (any function name) with 3 tests scores 3/3", out.startswith("3/3"), (out, err))
+    out, err = py(prog % "def parse(line):\n    raise NotImplementedError\n")
+    s.ok("code_py: a stub that raises scores below 3/3", out.startswith(("0/3", "1/3")) and not out.startswith("3/3"), (out, err))
+    log = ("import json\nfrom llm_probe.check import evaluate\nfrom llm_probe.prompts import all_prompts\n"
+           "p = {x.id: x for x in all_prompts()}['long_ctx_en']\n"
+           "good = 'OOM kills: nginx, postgres, redis, worker\\nConnection refused:\\n- nginx\\n- redis\\n- api-gateway\\nTimeouts: worker, nginx, postgres\\nThe scheduler logs no errors.'\n"
+           "bad = 'OOM at nginx. Connection refused at redis. The scheduler has timeouts.'\n"
+           "print(evaluate(p.check, p.expected, good).summary(), evaluate(p.check, p.expected, bad).summary())")
+    out, err = py(log)
+    s.ok("long_ctx: a correct summary scores 4/4, a thin one with the clean service blamed does not", out.startswith("4/4") and not out.endswith("4/4"), (out, err))
+    out, err = py("from llm_probe.prompts import PROMPTSET_VERSION as v; print(v)")
+    s.ok("the prompt set version stays 0.12.1", out == "0.12.1", out)
+
+    # extra metrics: read before and after every request (JSON path, Prometheus text), delta and gauge
+    metrics = json.dumps([{"name": "hits", "url": "/status", "json_path": "stats.hits", "mode": "delta"},
+                          {"name": "usage", "url": "/metrics", "prometheus": "mock_cache_usage", "mode": "gauge"},
+                          {"name": "broken", "url": "/nowhere", "json_path": "a.b", "mode": "gauge"}])
+    c = subprocess.run([sys.executable, "-m", "llm_probe", "--configure", "mock-stream", "--extra-metrics", metrics], cwd=ROOT, env=env, capture_output=True, text=True)
+    out = Path(tempfile.mkdtemp(prefix="llm-probe-metrics-"))
+    r = subprocess.run([sys.executable, "-m", "llm_probe", "--run", "mock-stream", "mock-model", "--prompts", "short_de", "--reps", "2", "--no-concurrency",
+                        "--export-to", str(out / "m.json")], cwd=ROOT, env=env, capture_output=True, text=True, timeout=240)
+    rows = [x for run in json.loads((out / "m.json").read_text())["runs"] for x in run["results"] if x["phase"] == "single"] if (out / "m.json").exists() else []
+    got = [json.loads(x["extra"] or "{}").get("metrics") for x in rows]
+    s.ok("--configure --extra-metrics stores the list", c.returncode == 0, c.stderr[-200:])
+    s.ok("every request has its delta (3 per request in the mock) and the summed gauge", bool(got) and all(g and g.get("hits") == 3 and g.get("usage") == 0.75 for g in got), got)
+    s.ok("a metric that cannot be read is left out and warned about once", all("broken" not in (g or {}) for g in got) and r.stdout.count("Extra metric not readable") == 1, r.stdout[-300:])
+    subprocess.run([sys.executable, "-m", "llm_probe", "--configure", "mock-stream", "--extra-metrics", "[]"], cwd=ROOT, env=env, capture_output=True, text=True)
+    shutil.rmtree(out, ignore_errors=True)
+
+    # placement doubt and SSH host key options (pure functions)
+    out, err = py("from llm_probe import placement as p\nprint(p.doubt({'api': {'size': 9<<30, 'size_vram': 9<<30, 'file_size': 20<<30}}) != '', "
+                  "p.doubt({'api': {'size': 9<<30, 'size_vram': 9<<30, 'file_size': 9<<30}}) == '', "
+                  "p.doubt({'api': {'size': 1<<30, 'size_vram': 1<<30}, 'ssh': {'gpus': [{'mib': 9000}]}}) != '', "
+                  "p.needs_attention({'api': {'size': 9<<30, 'size_vram': 9<<30, 'file_size': 20<<30}, 'doubt': 'x'}))")
+    s.ok("placement: 100% GPU against a much bigger model file or nvidia-smi is called unclear, a consistent one is not", out == "True True True True", (out, err))
+    out, err = py("from llm_probe.config import Endpoint\nfrom llm_probe.monitor import _connect_kwargs as k\n"
+                  "print(k(Endpoint('a', ssh_host='h'))['known_hosts'], 'known_hosts' in k(Endpoint('a', ssh_host='h', ssh_known_hosts='auto')), "
+                  "k(Endpoint('a', ssh_host='h', ssh_known_hosts='/x/kh'))['known_hosts'])")
+    s.ok("SSH host keys: not checked by default, auto uses the default file, a path is used as given", out == "None False /x/kh", (out, err))
+
+
 def check_edit_distance(s: Suite) -> None:
     """The bit-parallel edit distance of the OCR check gives exactly the numbers of the textbook table (pure function, no files)."""
     import random
@@ -682,7 +777,7 @@ def check_open_browser(s: Suite) -> None:
 
 CHECKS = [("tour", check_tour), ("home", check_home), ("results", check_results), ("compare", check_compare), ("responses", check_responses),
           ("prompts", check_prompts), ("refusal", check_refusal), ("settings", check_settings), ("test_tab", check_test_tab), ("security", check_security),
-          ("numbers", check_numbers), ("batch_thinking", check_batch_thinking), ("live_output", check_live_output), ("interrupted", check_interrupted), ("edit_distance", check_edit_distance), ("cli", check_cli), ("prompt_filter", check_prompt_filter), ("live_replay", check_live_replay), ("restart_notice", check_restart_notice), ("open_browser", check_open_browser)]
+          ("numbers", check_numbers), ("batch_thinking", check_batch_thinking), ("live_output", check_live_output), ("interrupted", check_interrupted), ("edit_distance", check_edit_distance), ("cli", check_cli), ("prefill", check_prefill), ("answer_checks", check_answer_checks), ("prompt_filter", check_prompt_filter), ("live_replay", check_live_replay), ("restart_notice", check_restart_notice), ("open_browser", check_open_browser)]
 UPDATE_BASELINE = False
 
 

@@ -21,7 +21,7 @@ from .config import DATA_DIR, PROMPTS_FILE
 
 IMAGES_ASSETS = Path(__file__).resolve().parent / "assets" / "images"  # built-in test images
 IMAGES_DIR = DATA_DIR / "images"  # images of custom prompts (looked up first)
-CHECK_MODES = ["", "words", "ocr", "tools", "refusal"]  # see check.evaluate
+CHECK_MODES = ["", "words", "ocr", "tools", "refusal", "code", "logsvc"]  # see check.evaluate
 # the two groups of prompts, derived from the prompt (see Prompt.group), in display order
 GROUPS = {
     "performance": "speed and throughput; the answers are not checked",
@@ -184,6 +184,11 @@ def image_b64(name: str) -> str:
 def image_mime(name: str) -> str:
     return {".png": "image/png", ".webp": "image/webp", ".gif": "image/gif"}.get(Path(name).suffix.lower(),
                                                                                   "image/jpeg")
+
+
+def _log_truth(log: str) -> dict:
+    from .codecheck import log_truth  # (imported here: codecheck needs check, which prompts needs first)
+    return log_truth(log)
 
 
 def _long_log() -> str:
@@ -1126,9 +1131,10 @@ def _language_prompts(lang: str) -> list[Prompt]:
     return [
         p("short", "Short question", "short", t["short"]),
         p("long_gen", "Long generation", "generation", t["long_gen"]),
-        p("code_py", "Code Python", "code", t["code_py"]),
+        p("code_py", "Code Python", "code", t["code_py"], expected="parse a combined-format nginx log line", check="code"),
         p("reasoning", "Logic puzzle", "reasoning", t["reasoning"]),
-        p("long_ctx", "Long context (log analysis)", "long-context", t["long_ctx"] + "\n\n" + _long_log()),
+        p("long_ctx", "Long context (log analysis)", "long-context", t["long_ctx"] + "\n\n" + _long_log(),
+          expected=json.dumps(_log_truth(_long_log())), check="logsvc"),
         p("json_extract", "JSON extraction", "structured", t["json_extract"]),
         # exact answers: shows how much a modified (e.g. abliterated) model has degraded
         p("exact_check", "Exact answer check (10 tasks)", "accuracy", t["exact_check"][0], expected=t["exact_check"][1]),

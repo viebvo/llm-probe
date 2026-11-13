@@ -59,6 +59,11 @@ def _connect_kwargs(ep: Endpoint) -> dict:
         "known_hosts": None,  # servers on the local LAN; host keys change when a VM/container is rebuilt
         "connect_timeout": 10,
     }
+    if ep.ssh_known_hosts and ep.ssh_known_hosts.lower() != "off":  # opt in: check the server's host key
+        if ep.ssh_known_hosts.lower() == "auto":
+            del kw["known_hosts"]  # asyncssh's default: ~/.ssh/known_hosts
+        else:
+            kw["known_hosts"] = ep.ssh_known_hosts
     if ep.ssh_user:  # empty = local user name
         kw["username"] = ep.ssh_user
     if ep.ssh_password:

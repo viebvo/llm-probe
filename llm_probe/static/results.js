@@ -386,14 +386,18 @@ function renderRun(d) {
     const st = state.runTbl[id];
     return st ? sortBy(items, st, { [st.key]: valueOf }) : items;
   };
+  const mnames = [...new Set(d.single.flatMap((p) => Object.keys(p.metrics || {})))].sort();  // the endpoint's extra metrics (config: extra_metrics)
+  const coldWarm = (p) => p.ttft_cold == null || p.ttft_warm == null ? "-"
+    : `<span title="First repetition (cold) / later repetitions (a prompt cache may already have the prompt)">${fmt(p.ttft_cold, 2)} / ${fmt(p.ttft_warm, 2, " s")}</span>`;
   const sk = (id, keys) => ({ id, keys, cur: state.runTbl[id] });
   out += section("run-single", "Single requests (median)", '<div class="box-opts no-print"><span>click a column header to sort the rows (again: reverse, again: original order)</span></div>' + table("",
-    ["Prompt", "TTFT", "TTFA", "Decode tok/s", "E2E tok/s", "Duration", "Prompt tok.", "Output tok.", "Errors", "Cut off", "Check"],
-    groupedRows(d.single.map((p) => p.prompt_id), 11, (pids) => bySort("single", pids.map((pid) => d.single.find((p) => p.prompt_id === pid)),
-      (p) => { const k = state.runTbl.single.key; return k === "prompt" ? promptName(p.prompt_id) : p[k]; })
-      .map((p) => [esc(promptName(p.prompt_id)) + ctxNote(runs, p.prompt_id), fmt(p.ttft, 2, " s"), fmt(p.ttfa, 2, " s"), fmt(p.decode_tps), fmt(p.e2e_tps),
-        fmt(p.total, 1, " s"), fmt(p.prompt_tokens, 0), fmt(p.completion_tokens, 0), p.errors || "", cutLabel(p), checkLabel(p)])),
-    sk("single", ["prompt", "ttft", "ttfa", "decode_tps", "e2e_tps", "total", "prompt_tokens", "completion_tokens", "errors", null, "check_score"])));
+    ["Prompt", "TTFT", "TTFT cold / warm", "TTFA", "Decode tok/s", "E2E tok/s", "Prefill tok/s", "Cached tok.", "Duration", "Prompt tok.", "Output tok.", "Errors", "Cut off", "Check", ...mnames],
+    groupedRows(d.single.map((p) => p.prompt_id), 14 + mnames.length, (pids) => bySort("single", pids.map((pid) => d.single.find((p) => p.prompt_id === pid)),
+      (p) => { const k = state.runTbl.single.key; return k === "prompt" ? promptName(p.prompt_id) : k.startsWith("m:") ? p.metrics?.[k.slice(2)] : p[k]; })
+      .map((p) => [esc(promptName(p.prompt_id)) + ctxNote(runs, p.prompt_id), fmt(p.ttft, 2, " s"), coldWarm(p), fmt(p.ttfa, 2, " s"), fmt(p.decode_tps), fmt(p.e2e_tps),
+        fmt(p.prefill_tps, 0), fmt(p.cached_tokens, 0), fmt(p.total, 1, " s"), fmt(p.prompt_tokens, 0), fmt(p.completion_tokens, 0), p.errors || "", cutLabel(p), checkLabel(p),
+        ...mnames.map((n) => fmt(p.metrics?.[n], 2))])),
+    sk("single", ["prompt", "ttft", "ttft_cold", "ttfa", "decode_tps", "e2e_tps", "prefill_tps", "cached_tokens", "total", "prompt_tokens", "completion_tokens", "errors", null, "check_score", ...mnames.map((n) => "m:" + n)])));
   out += section("run-load", "Concurrent load", '<div class="box-opts no-print"><span>click a column header to sort the rows (again: reverse, again: original order)</span></div>' + table("",
     ["Concurrency", "Requests", "Throughput tok/s", "Req/s", "Avg TTFT", "p95 TTFT", "Avg TTFA", "Avg latency", "p95 latency", "tok/s per req", "Errors"],
     bySort("load", d.load, (l) => l[state.runTbl.load.key]).map((l) => [l.concurrency, l.n, fmt(l.throughput), fmt(l.req_per_s, 2), fmt(l.ttft_avg, 2, " s"),

@@ -5,7 +5,8 @@ and models that think inline can be compared against the same template.
 
 Check modes (Prompt.check): "" exact lines, "words" lenient lines (e.g. image questions),
 "ocr" character error rate against a reference text, "tools" expected tool calls (JSON), "refusal" whether
-the model refuses (expected "refuse") or answers (expected "comply").
+the model refuses (expected "refuse") or answers (expected "comply"), "code" Python code run against fixed tests
+(codecheck.py), "logsvc" the error summary of the generated log (expected: codecheck.log_truth as JSON).
 In the line modes, an expected value may list alternatives separated by "|".
 """
 
@@ -555,6 +556,9 @@ def _evaluate(mode: str, expected: str, response: str, calls: str, provenance: t
         return refusal_check(response, expected)
     if mode == "overflow":
         return overflow_check(response, expected, word)
+    if mode in ("code", "logsvc"):
+        from . import codecheck  # runs model code in the sandbox: imported when needed
+        return codecheck.code_check(response, expected) if mode == "code" else codecheck.logsvc_check(response, expected)
     return check(response, expected, words=mode == "words", provenance=frozenset(provenance), word=word)
 
 
