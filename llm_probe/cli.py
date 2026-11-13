@@ -5,18 +5,23 @@ from __future__ import annotations
 import argparse
 import asyncio
 import getpass
+import json
 import os
+import re
 import sys
+from datetime import datetime
+from pathlib import Path
 from dataclasses import asdict, replace
 
 from rich.errors import MarkupError
 from rich.text import Text
 
-from . import __version__
+from . import __version__, storage
 from .bench import BatchRunner, clean_comment, result_line
 from .client import api_error_hint, list_models
 from .config import (DEFAULT_PORTS, clean_currency, MAX_BATCH_RUNS, THINKING_MODES, BenchSettings, Config, Endpoint, batch_plan, edit_config, load_config,
                      parse_values, split_values, valid_thinking)
+from .privacy import mask_export
 from .lock import TestLock, holder, holder_text
 from .prompts import DEFAULT_SELECTION, NO_LANGUAGE, Prompt, all_prompts, selection_facets
 
@@ -60,6 +65,9 @@ def build_parser() -> argparse.ArgumentParser:
     modes.add_argument("--configure", metavar="ENDPOINT", help="create or change an endpoint (options below)")
     modes.add_argument("--list-endpoints", action="store_true", help="show the configured endpoints")
     modes.add_argument("--list-models", metavar="ENDPOINT", help="show the models an endpoint offers")
+    modes.add_argument("--export", metavar="last|ID[,ID...]",
+                       help="write stored runs as an export file the web UI can import (Results > Import); to stdout, or "
+                            "to the file given by -o")
     modes.add_argument("--list-prompts", action="store_true",
                        help="show the prompts (all, or those taken by --lang/--difficulty/--group/--kind)")
 
@@ -84,6 +92,13 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--capabilities-only", action="store_true", help="run only the capability check, no prompts")
     run.add_argument("--comment", help="your words for the run(s); stored as the start of the run's note (e.g. a build or commit id)")
     run.add_argument("--force", action="store_true", help="start even if another LLM Probe runs a test")
+
+    out = p.add_argument_group("export (--export, and --export-to with --run)")
+    out.add_argument("-o", "--output", metavar="FILE", help="--export: the file to write (default: standard output)")
+    out.add_argument("--export-to", metavar="PATH", help="--run: after the run(s) write one export file with all of them; PATH is a "
+                     "file, or a directory (name: <YYYYmmdd-HHMM>_<endpoint>_<model>.json)")
+    out.add_argument("--include-hosts", action="store_true",
+                     help="keep the server addresses in the export (default: replaced by <host>, like the web UI's export)")
 
     sel = p.add_argument_group("prompt selection (--run, --list-prompts); comma separated, 'none' = prompts "
                                "without a language")
@@ -194,7 +209,7 @@ def list_endpoint_models(name: str) -> int:
 
 
 def list_prompt_table(args: argparse.Namespace) -> int:
-    filtered = any(getattr(args, f) for f in FACETS)
+    filtered = bool(args.prompts) or any(getattr(args, f) for f in FACETS)
     prompts = select_prompts(args) if filtered else all_prompts()
     if isinstance(prompts, str):
         return fail(prompts)
@@ -316,13 +331,73 @@ def run_batch(args: argparse.Namespace) -> int:
             print(f"Run #{d['run_id']} finished: {d['status']}", flush=True)
 
     try:
-        asyncio.run(BatchRunner(ep, models, prompts, settings, emit, caps, comment=clean_comment(args.comment)).run())
+        run_ids = asyncio.run(BatchRunner(ep, models, prompts, settings, emit, caps, comment=clean_comment(args.comment)).run())
     except KeyboardInterrupt:
         print("Interrupted.", file=sys.stderr)
         return EXIT_INTERRUPTED
     finally:
         lock.release()
-    return 0 if statuses and all(s == "done" for s in statuses) else EXIT_FAILED
+    code = 0 if statuses and all(s == "done" for s in statuses) else EXIT_FAILED
+    if args.export_to and run_ids:  # the measurement stays in the database even when the export fails
+        try:
+            target = write_export(run_ids, Path(args.export_to), args.include_hosts, f"{ep.name}_{models[0] if len(models) == 1 else 'batch'}")
+        except OSError as ex:
+            print(f"Export failed: {ex}", file=sys.stderr)
+            return EXIT_FAILED
+        print(f"Exported run(s) {', '.join(f'#{r}' for r in run_ids)} to {target}", flush=True)
+    return code
+
+
+# ------------------------------------------------------------------ export
+
+def export_document(run_ids: list[int], include_hosts: bool) -> dict:
+    db = storage.connect()
+    try:
+        data = storage.export_runs(db, run_ids)
+    finally:
+        db.close()
+    return data if include_hosts else mask_export(data, data["runs"], load_config())
+
+
+def write_export(run_ids: list[int], path: Path, include_hosts: bool, label: str = "", directory_ok: bool = True) -> Path:
+    """Write the runs as one export file; `path` is a file name (*.json) or, with directory_ok, a directory (created, named after
+    time and label)."""
+    data = export_document(run_ids, include_hosts)
+    if directory_ok and path.suffix.lower() != ".json" and not path.is_file():
+        stamp = datetime.now().strftime("%Y%m%d-%H%M")
+        path = path / f"{stamp}_{re.sub(r'[^A-Za-z0-9._+-]+', '-', label).strip('-')}.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    return path
+
+
+def export_command(args: argparse.Namespace) -> int:
+    db = storage.connect()
+    try:
+        known = {r[0] for r in db.execute("SELECT id FROM runs")}
+    finally:
+        db.close()
+    if args.export.strip().lower() == "last":
+        ids = [max(known)] if known else []
+    else:
+        try:
+            ids = [int(x) for x in args.export.split(",") if x.strip()]
+        except ValueError:
+            return fail(f"--export: '{args.export}' is neither 'last' nor a list of run ids")
+    if not ids:
+        return fail("--export: there is no run to export")
+    if unknown := [i for i in ids if i not in known]:
+        return fail(f"--export: no run with id {', '.join(f'#{i}' for i in unknown)} (the web UI's Results list shows the ids)")
+    if args.output:
+        try:
+            target = write_export(ids, Path(args.output), args.include_hosts, directory_ok=False)
+        except OSError as ex:
+            return fail(f"--export: {ex}", EXIT_FAILED)
+        print(f"Exported {len(ids)} run(s) to {target}", file=sys.stderr)
+    else:
+        json.dump(export_document(ids, args.include_hosts), sys.stdout, ensure_ascii=False)
+        sys.stdout.write("\n")
+    return 0
 
 
 # ------------------------------------------------------------------ configure
@@ -393,6 +468,12 @@ def configure(args: argparse.Namespace) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    if args.export_to and args.run is None:
+        return fail("--export-to belongs to --run (to export stored runs use --export)")
+    if args.output and args.export is None:
+        return fail("-o belongs to --export")
+    if args.export is not None:
+        return export_command(args)
     if args.run is not None:
         return run_batch(args)
     if args.configure:

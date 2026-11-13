@@ -529,6 +529,36 @@ def check_interrupted(s: Suite) -> None:
     db = sqlite3.connect(s.home / "results.db"); db.execute("DELETE FROM runs WHERE id = ?", (rid,)); db.commit(); db.close()
 
 
+def check_cli(s: Suite) -> None:
+    """Command line: --list-prompts honours --prompts; --export / --export-to write a file the web UI imports; thinking_field."""
+    env = {**os.environ, "LLM_PROBE_HOME": str(s.home)}
+
+    def cli(*a, timeout=240):
+        return subprocess.run([sys.executable, "-m", "llm_probe", *a], cwd=ROOT, env=env, capture_output=True, text=True, timeout=timeout)
+
+    r = cli("--list-prompts", "--prompts", "short_de,code_py_de")
+    s.ok("--list-prompts --prompts lists exactly those", r.returncode == 0 and len(r.stdout.strip().splitlines()) == 2, r.stdout[:200])
+    out = Path(tempfile.mkdtemp(prefix="llm-probe-export-"))
+    r = cli("--export", "last", "-o", str(out / "x.json"))
+    d = json.loads((out / "x.json").read_text()) if (out / "x.json").exists() else {}
+    s.ok("--export last -o writes the export format", r.returncode == 0 and d.get("format") == "llm-probe-runs" and len(d.get("runs", [])) == 1, r.stderr[:200])
+    body = json.dumps(d).encode()
+    code, txt = s.get("/api/import", {"Content-Type": "application/json"}, "POST", body)
+    s.ok("the web UI accepts that file", code == 200 and "imported" in txt, (code, txt[:120]))
+    r = cli("--export", "999999")
+    s.ok("--export with an unknown id: exit code 2 and a message", r.returncode == 2 and "999999" in r.stderr, (r.returncode, r.stderr[:160]))
+    r = cli("--export", "last")
+    s.ok("--export without -o writes the document to stdout", r.returncode == 0 and json.loads(r.stdout).get("format") == "llm-probe-runs")
+    r = cli("--run", "mock-stream", "mock-model", "--prompts", "short_de", "--reps", "1", "--no-concurrency", "--thinking", "off",
+            "--export-to", str(out / "dir"))
+    files = list((out / "dir").glob("*.json")) if (out / "dir").exists() else []
+    s.ok("--run --export-to DIR writes exactly one file", r.returncode == 0 and len(files) == 1 and "_mock-stream_mock-model.json" in files[0].name, (r.returncode, [f.name for f in files], r.stderr[-200:]))
+    runs = json.loads(files[0].read_text())["runs"] if files else []
+    s.ok("the run stores which field carried the thinking setting", bool(runs) and runs[0]["settings"].get("thinking_field") == "reasoning_effort", runs[0]["settings"].get("thinking_field") if runs else None)
+    s.ok("--export-to without --run is refused", cli("--export-to", str(out)).returncode == 2)
+    shutil.rmtree(out, ignore_errors=True)
+
+
 def check_edit_distance(s: Suite) -> None:
     """The bit-parallel edit distance of the OCR check gives exactly the numbers of the textbook table (pure function, no files)."""
     import random
@@ -652,7 +682,7 @@ def check_open_browser(s: Suite) -> None:
 
 CHECKS = [("tour", check_tour), ("home", check_home), ("results", check_results), ("compare", check_compare), ("responses", check_responses),
           ("prompts", check_prompts), ("refusal", check_refusal), ("settings", check_settings), ("test_tab", check_test_tab), ("security", check_security),
-          ("numbers", check_numbers), ("batch_thinking", check_batch_thinking), ("live_output", check_live_output), ("interrupted", check_interrupted), ("edit_distance", check_edit_distance), ("prompt_filter", check_prompt_filter), ("live_replay", check_live_replay), ("restart_notice", check_restart_notice), ("open_browser", check_open_browser)]
+          ("numbers", check_numbers), ("batch_thinking", check_batch_thinking), ("live_output", check_live_output), ("interrupted", check_interrupted), ("edit_distance", check_edit_distance), ("cli", check_cli), ("prompt_filter", check_prompt_filter), ("live_replay", check_live_replay), ("restart_notice", check_restart_notice), ("open_browser", check_open_browser)]
 UPDATE_BASELINE = False
 
 

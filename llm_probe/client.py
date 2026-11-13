@@ -90,6 +90,16 @@ def thinking_params(ep: Endpoint, mode: str, native: bool = False) -> dict:
     return {"reasoning_effort": "none" if mode == "off" else mode}  # Ollama maps it to "think"
 
 
+def thinking_field(ep: Endpoint, mode: str) -> str:
+    """Name of the request field that carries the thinking setting for this endpoint, e.g. 'reasoning_effort' ('' = none sent)."""
+    params = thinking_params(ep, mode, native=uses_native_api(ep))
+    if not params:
+        return ""
+    key = next(iter(params))
+    inner = params[key]
+    return f"{key}.{next(iter(inner))}" if isinstance(inner, dict) else key
+
+
 def thinking_unsupported(error: str) -> bool:
     """Ollama refuses a thinking level for models without reasoning."""
     return "does not support thinking" in error

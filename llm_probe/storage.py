@@ -478,7 +478,7 @@ def thinking_label(settings: dict, th: dict | None, short: bool = False) -> str:
                       + (f" (~{th['tokens']:.0f} tok/response)" if th["tokens"] else ""))
     if short:
         return "-" if th is None and not mode else f"{mode or 'model default'} -> {result}"
-    notes = [f"requested: {mode}"] if mode else []
+    notes = [f"requested: {mode}" + (f" via {settings['thinking_field']}" if settings.get("thinking_field") else "")] if mode else []
     if settings.get("thinking_note"):
         notes.append(settings["thinking_note"])
     return result + (f" - {', '.join(notes)}" if notes else "")

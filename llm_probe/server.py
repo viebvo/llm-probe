@@ -33,7 +33,7 @@ from .config import (DEFAULT_PORTS, clean_currency, MAX_BATCH_RUNS, BenchSetting
                      parse_values, split_values, valid_thinking)
 from .lock import TestLock, holder, holder_text
 from .monitor import test_ssh
-from .privacy import host_of, mask_data
+from .privacy import mask_export
 from .prompts import (CHECK_MODES, DEFAULT_SELECTION, DIFFICULTIES, IMAGES_ASSETS, LANGUAGES, PROMPTSET_VERSION, Prompt, all_prompts,
                       edit_custom_prompts, load_custom_prompts, SAFETY_NOTICE, SAFETY_WHERE, image_exists, image_path, save_image, upload_path, selection_facets)
 
@@ -192,13 +192,7 @@ def mask_hosts(request: web.Request, data, runs: list[dict] | None = None):
     (the endpoint name and the model stay). `runs`: the run rows whose base_url / endpoint's SSH host are to be hidden."""
     if request.query.get("hosts") == "1":
         return data
-    cfg = load_config()
-    hosts = set()
-    for r in runs or []:
-        hosts.add(host_of(r.get("base_url", "")))
-        if (e := cfg.endpoint(r.get("endpoint", ""))) is not None:
-            hosts.update({host_of(e.base_url), (e.ssh_host or "").lower()})
-    return mask_data(data, hosts - {"", "localhost", "127.0.0.1", "::1"})
+    return mask_export(data, runs or [], load_config())
 
 
 def sweep_interrupted(request: web.Request, db) -> None:

@@ -15,7 +15,7 @@ from typing import Callable
 import httpx
 from rich.text import Text
 
-from .client import (RequestResult, chat_stream, context_info, model_capabilities, model_details, setting_rejected,
+from .client import (RequestResult, thinking_field, chat_stream, context_info, model_capabilities, model_details, setting_rejected,
                      thinking_unsupported, unload_model, unsupported_capability)
 from .config import BenchSettings, Endpoint, batch_plan, clean_currency
 from .monitor import ResourceMonitor
@@ -493,8 +493,9 @@ class BenchmarkRunner:
                     raise RuntimeError(f"Warmup failed: {w.error}")
                 settings["warmup_s"] = round(time.monotonic() - t, 2)
                 self._log(f"Warmup ok after {settings['warmup_s']} s")
+                settings["thinking_field"] = thinking_field(self.ep, self.thinking)
                 if self.thinking:
-                    self._log(f"Thinking requested: {self.thinking}")
+                    self._log(f"Thinking requested: {self.thinking} (field: {settings['thinking_field']})")
                 settings["context"] = ctx = await context_info(self.ep, self.model)
                 self.ctx_limit = None if self.ep.ollama_like else ctx.get("context")
                 self._log(f"Context: {storage.context_label(settings)}")

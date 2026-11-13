@@ -62,3 +62,14 @@ def mask_data(obj, hosts: set[str]):
     if isinstance(obj, dict):
         return {k: (mask_base_url(v) if k == "base_url" and isinstance(v, str) else mask_data(v, hosts)) for k, v in obj.items()}
     return obj
+
+
+def mask_export(data, runs: list[dict], cfg) -> object:
+    """Host names are private: the addresses of the servers (the run's base_url and its endpoint's SSH host) are replaced by
+    <host> in `data`; the endpoint name and the model stay. `runs`: the run rows, cfg: the loaded Config."""
+    hosts = set()
+    for r in runs:
+        hosts.add(host_of(r.get("base_url", "")))
+        if (e := cfg.endpoint(r.get("endpoint", ""))) is not None:
+            hosts.update({host_of(e.base_url), (e.ssh_host or "").lower()})
+    return mask_data(data, hosts - {"", "localhost", "127.0.0.1", "::1"})

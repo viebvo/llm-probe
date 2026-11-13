@@ -69,6 +69,8 @@ Nothing else has to be installed by hand. The start scripts create a private Pyt
 | macOS / Linux desktop | double-click `run-web.command` (or `./run-web.command`) |
 | Linux server | `./run.sh --host 0.0.0.0 --password ...` and open `http://<host>:8080/` |
 
+If `./run.sh` says *Permission denied* (an unpacker that drops the file mode, for example Python's `zipfile`), start it with `bash run.sh`.
+
 `run-web.*` start the web UI for this computer only (`127.0.0.1:8080`) and open the browser. The UI starts on a **Home** page that explains the four steps: add an endpoint, select models and prompts, start, look at the results.
 
 **A security warning on the first start**
@@ -585,6 +587,8 @@ LLM_PROBE_API_KEY=... ./run.sh --configure cloud --url https://api.example.com -
 ./run.sh --run gpu-box qwen3:8b --prompts log_triage_fit,format_strict --reps 1 --capabilities
 ```
 
+**`--export last|ID[,ID...] [-o FILE]`** writes stored runs in the format of the web UI's export, without starting a test. Without `-o` the document goes to standard output. Unknown ids give exit code 2. Like in the web UI the server addresses are replaced by `<host>`; `--include-hosts` keeps them. A typical flow: measure on a server with `--run ... --export-to DIR`, copy the file to your desk and import it in the web UI.
+
 **`--run ENDPOINT MODEL [MODEL ...]`**
 
 * With several models, a batch runs one after another. Each model is stored as its own run.
@@ -593,6 +597,7 @@ LLM_PROBE_API_KEY=... ./run.sh --configure cloud --url https://api.example.com -
 * **`--comment TEXT`** is your own word for the run(s), for example a build or commit id. It opens the note of every run it creates (a batch adds its numbering behind it), like the *Comment for run* field of the Test page.
 * The prompts are chosen by rules, the same ones as the default and the presets of the web UI. Use the facets `--lang`, `--difficulty`, `--group` and `--kind` (comma separated). The defaults are those of a new test in the web UI, and `none` means prompts without a language. Or give exactly the ids with `--prompts`.
 * The progress is printed as plain text.
+* **`--export-to PATH`** writes one export file with all runs of the call after the last run, for the import in the web UI (Results > Import). `PATH` is a file name (`*.json`) or a directory, which gets `<YYYYmmdd-HHMM>_<endpoint>_<model>.json` (`batch` instead of the model name for several models). If the export fails the exit code is 1, but the runs stay in the database.
 * One test runs at a time (see above). While another process runs one, the command stops and says who. `--force` starts anyway.
 * Ctrl+C aborts. The run is stored as aborted.
 * **Exit code:** 0 = every run finished, 1 = a run failed or was aborted, 2 = wrong usage, 3 = another test is running, 130 = interrupted.
