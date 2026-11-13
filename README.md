@@ -579,6 +579,8 @@ Without a mode option, the program starts the web UI. The mode options work with
 ```bash
 ./run.sh --configure gpu-box --url http://my-server:11434 --ssh-host my-server --ssh-user me   # create / change
 LLM_PROBE_API_KEY=... ./run.sh --configure cloud --url https://api.example.com --set-api-key    # key not as argument
+./run.sh --configure gpu-box --ssh-known-hosts auto   # check the SSH host key (default: off); `off` switches it off again
+./run.sh --configure gpu-box --extra-metrics '[{"name": "hits", "url": "/status", "json_path": "stats.hits", "mode": "delta"}]'   # backend figures per request, see "What is measured"
 ./run.sh --list-endpoints                          # what is configured
 ./run.sh --list-models gpu-box                     # what the server offers
 ./run.sh --list-prompts --difficulty hard          # prompt ids and their facets
@@ -624,7 +626,8 @@ cd /opt/llm-probe
 
 # the same prompts every night (--prompts could pin exact ids); --comment opens the run's note
 out=$(./run.sh --run gpu-box qwen3:8b --difficulty easy,hard --lang en --no-concurrency \
-        --comment "deploy $(git -C /srv/app rev-parse --short HEAD)") || {
+        --comment "deploy $(git -C /srv/app rev-parse --short HEAD)" \
+        --export-to /srv/eval-results/) || {
   code=$?; echo "$out"; echo "LLM Probe exit code $code (1 = run failed, 3 = another test is running)"; exit "$code"; }
 echo "$out"
 
@@ -639,6 +642,7 @@ python3 -c "import sys; sys.exit(0 if $score >= 0.85 else 1)" || { echo "score b
 ```
 
 * The run is a normal run: it shows up in Results with your comment at the start of its note, and Compare can put it next to earlier nights.
+* `--export-to` also writes the run as a file (`<date>_<endpoint>_<model>.json`). Copy it to your desk and import it in the web UI (Results > Import) to look at it there. `--export last -o FILE` does the same for runs that are already stored.
 * Exit codes: 0 = every run finished, 1 = a run failed or was aborted, 2 = wrong usage, 3 = another test is running (a second night job would wait for the first), 130 = interrupted.
 * `storage.run_summary` is internal and may change between versions: it returns `(tokens/s, time to first token, time to first answer token, peak, check score)`. Pin the version you tested, or read the score from the web UI's JSON (`/api/runs`, key `check_score`) when a server is running.
 * Compare like with like: the same prompts (the prompt set version is stored with every run) and the same settings. See [Notes for fair comparisons](#notes-for-fair-comparisons).
